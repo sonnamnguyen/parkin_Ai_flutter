@@ -1,0 +1,58 @@
+# Flutter/Dart/Pub related
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+
+# Build outputs
+build/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+android/app/debug
+android/app/profile
+android/app/release
+
+# Generated files
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*.tmp
+
+# IDE configs
+.idea/
+.vscode/
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Android/Gradle
+.gradle/
+**/gradle-wrapper.jar
+local.properties
+android/app/google-services.json
+android/key.properties
+
+# iOS/Xcode
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Runner.xcodeproj/project.xcworkspace/
+ios/Runner.xcodeproj/xcuserdata/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/.symlinks/
+
+# Web
+web/.dart_tool/
+
+# Coverage
+coverage/
+
+# Hive database (if you want to ignore local db files)
+*.hive
+*.lock

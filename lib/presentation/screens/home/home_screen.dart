@@ -87,108 +87,106 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      
-        child: Column(
-          children: [
-            // Header Section
-            Container(
-              decoration: AppThemes.gradientBackground,
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    // Top Bar with User Info
-                    _buildTopBar(),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ),
-
-            // Map Section
-            Expanded(
-              child: Stack(
+      child: Column(
+        children: [
+          // Header Section
+          Container(
+            decoration: AppThemes.gradientBackground,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
                 children: [
-                  // Map Placeholder with Parking Markers
-                  Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: AppColors.mapBackground,
-                    ),
-                    child: Stack(
-                      children: [
-                        // Map markers
-                        ..._nearbyParking.asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final parking = entry.value;
-                          return Positioned(
-                            top: 100.0 + (index * 100),
-                            left: 50.0 + (index * 30),
-                            child: _buildMapMarker(
-                              available: parking.hasAvailableSlots,
-                              parking: parking,
-                              onTap: () => _selectParking(parking),
-                            ),
-                          );
-                        }).toList(),
-
-                        // Center location indicator
-                        Center(
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: AppColors.white, width: 3),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Vehicle Card Overlay
-                  if (_selectedParking != null)
-                    Positioned(
-                      top: 16,
-                      left: 16,
-                      right: 16,
-                      child: _buildVehicleCard(parking: _selectedParking!),
-                    ),
-
-                  // Quick Actions at Bottom
-                  Positioned(
-                    bottom: 80, // Moved up to make room for search bar
-                    left: 16,
-                    right: 16,
-                    child: _buildQuickActions(),
-                  ),
-
-                  // Search Bar at Bottom
-                  Positioned(
-                    bottom: 16,
-                    left: 16,
-                    right: 16,
-                    child: _buildSearchBar(),
-                  ),
-
-                  // AI Analysis Button (animated)
-                  if (_isAnalyzing)
-                    Positioned(
-                      bottom: 160, // Adjusted position
-                      left: 0,
-                      right: 0,
-                      child: _buildAIAnalysisButton(),
-                    ),
+                  // Top Bar with User Info
+                  _buildTopBar(),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
-          ],
-        ),
-      );
-    
+          ),
+
+          // Map Section
+          Expanded(
+            child: Stack(
+              children: [
+                // Map Placeholder with Parking Markers
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: AppColors.mapBackground,
+                  ),
+                  child: Stack(
+                    children: [
+                      // Map markers
+                      ..._nearbyParking.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final parking = entry.value;
+                        return Positioned(
+                          top: 100.0 + (index * 100),
+                          left: 50.0 + (index * 30),
+                          child: _buildMapMarker(
+                            available: parking.hasAvailableSlots,
+                            parking: parking,
+                            onTap: () => _selectParking(parking),
+                          ),
+                        );
+                      }).toList(),
+
+                      // Center location indicator
+                      Center(
+                        child: Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: AppColors.white, width: 3),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Vehicle Card Overlay
+                if (_selectedParking != null)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: _buildVehicleCard(parking: _selectedParking!),
+                  ),
+
+                // Quick Actions at Bottom
+                Positioned(
+                  bottom: 80, // Moved up to make room for search bar
+                  left: 16,
+                  right: 16,
+                  child: _buildQuickActions(),
+                ),
+
+                // Search Bar at Bottom
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  right: 16,
+                  child: _buildSearchBar(),
+                ),
+
+                // AI Analysis Button (animated)
+                if (_isAnalyzing)
+                  Positioned(
+                    bottom: 160, // Adjusted position
+                    left: 0,
+                    right: 0,
+                    child: _buildAIAnalysisButton(),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildTopBar() {
@@ -212,18 +210,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppColors.white,
                   size: 20,
                 ),
-               onPressed: () {
-  print('Menu button pressed!'); // Debug print 1
-  final ScaffoldState? scaffoldState = context.findAncestorStateOfType<ScaffoldState>();
-  print('ScaffoldState found: ${scaffoldState != null}'); // Debug print 2
-  if (scaffoldState != null) {
-    print('Attempting to open drawer...'); // Debug print 3
-    scaffoldState.openDrawer();
-    print('openDrawer() called'); // Debug print 4
-  } else {
-    print('ScaffoldState is null!'); // Debug print 5
-  }
-},
+                onPressed: () {
+                  print('Menu button pressed!'); // Debug print 1
+                  final ScaffoldState? scaffoldState =
+                      context.findAncestorStateOfType<ScaffoldState>();
+                  print(
+                      'ScaffoldState found: ${scaffoldState != null}'); // Debug print 2
+                  if (scaffoldState != null) {
+                    print('Attempting to open drawer...'); // Debug print 3
+                    scaffoldState.openDrawer();
+                    print('openDrawer() called'); // Debug print 4
+                  } else {
+                    print('ScaffoldState is null!'); // Debug print 5
+                  }
+                },
               ),
             ),
 

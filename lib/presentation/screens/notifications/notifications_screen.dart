@@ -45,8 +45,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
+         leading: IconButton(
+          onPressed: () => Navigator.of(context).pushNamed('/main'),
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.darkGrey),
         ),
         title: Text(

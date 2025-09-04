@@ -5,6 +5,15 @@ import '../presentation/screens/auth/register_screen.dart';
 import '../presentation/screens/auth/verification_screen.dart';
 import '../presentation/screens/main/main_screen.dart';
 import '../presentation/screens/profile/my_cars_screen.dart';
+import '../presentation/screens/parking/parking_detail_screen.dart';
+import '../presentation/screens/parking/slot_selection_screen.dart';
+import '../presentation/screens/parking/order_detail_screen.dart';
+import '../presentation/screens/parking/schedule_screen.dart';
+import '../presentation/screens/parking/payment_screen.dart';
+import '../presentation/screens/search/search_screen.dart';
+import '../presentation/screens/notifications/notifications_screen.dart' as notifications;
+import '../data/models/parking_lot_model.dart';
+import '../data/models/parking_slot_model.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -48,11 +57,64 @@ class RouteGenerator {
           builder: (_) => const MyCarsScreen(),
         );
 
-      default:
+      case AppRoutes.search:
         return MaterialPageRoute(
-          builder: (_) => const ErrorScreen(),
+          builder: (_) => const SearchScreen(),
         );
+
+      case AppRoutes.notifications:
+        return MaterialPageRoute(
+          builder: (_) => const notifications.NotificationsScreen(),
+        );
+
+      case AppRoutes.parkingDetail:
+        if (args is ParkingLot) {
+          return MaterialPageRoute(
+            builder: (_) => ParkingDetailScreen(parkingLot: args),
+          );
+        }
+        return _errorRoute();
+
+      case AppRoutes.selectSlot:
+        if (args is ParkingLot) {
+          return MaterialPageRoute(
+            builder: (_) => SlotSelectionScreen(parkingLot: args),
+          );
+        }
+        return _errorRoute();
+
+      case AppRoutes.orderDetail:
+        if (args is Map<String, dynamic>) {
+          final parkingLot = args['parkingLot'] as ParkingLot;
+          final selectedSlot = args['selectedSlot'] as ParkingSlot;
+          return MaterialPageRoute(
+            builder: (_) => OrderDetailScreen(
+              parkingLot: parkingLot,
+              selectedSlot: selectedSlot,
+            ),
+          );
+        }
+        return _errorRoute();
+
+      case AppRoutes.schedule:
+        return MaterialPageRoute(
+          builder: (_) => const ScheduleScreen(),
+        );
+
+      case AppRoutes.payment:
+        return MaterialPageRoute(
+          builder: (_) => const PaymentScreen(),
+        );
+
+      default:
+        return _errorRoute();
     }
+  }
+
+  static Route<dynamic> _errorRoute() {
+    return MaterialPageRoute(
+      builder: (_) => const ErrorScreen(),
+    );
   }
 }
 
@@ -151,8 +213,7 @@ class VerificationSuccessScreen extends StatelessWidget {
     );
   }
 }
-
-// Error Screen for undefined routes
+// Error Screen
 class ErrorScreen extends StatelessWidget {
   const ErrorScreen({super.key});
 

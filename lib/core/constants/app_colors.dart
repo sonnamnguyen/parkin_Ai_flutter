@@ -39,4 +39,10 @@ class AppColors {
   static const Color mapPinAvailable = Color(0xFFFF6B9D);
   static const Color mapPinOccupied = Color(0xFF8F9BB3);
   static const Color mapPinSelected = Color(0xFF6C63FF);
+
+    // Parking Status Colors
+  static const Color available = Color(0xFF48BB78);
+  static const Color occupied = Color(0xFFE53E3E);
+  static const Color reserved = Color(0xFFED8936);
+  static const Color maintenance = Color(0xFF718096);
 }

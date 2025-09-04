@@ -20,6 +20,9 @@ class AppConstants {
   
   // Pagination
   static const int defaultPageSize = 20;
+
+  static const double minTopUpAmount = 50000; // 50k VND
+  static const double maxTopUpAmount = 5000000; // 5M VND
   
   // File Upload
   static const int maxImageSize = 5 * 1024 * 1024; // 5MB

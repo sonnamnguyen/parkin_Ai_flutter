@@ -48,7 +48,7 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).pushNamed('/main'),
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.darkGrey),
         ),
         title: Text(
@@ -57,18 +57,6 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
             color: AppColors.darkGrey,
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: _navigateToAddCar,
-            child: Text(
-              AppStrings.addNewCar,
-              style: AppThemes.bodyMedium.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),

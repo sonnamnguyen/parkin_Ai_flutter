@@ -84,12 +84,12 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Back button
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_ios),
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerLeft,
-              ),
+              // IconButton(
+              //   onPressed: () => Navigator.of(context).pop(),
+              //   icon: const Icon(Icons.arrow_back_ios),
+              //   padding: EdgeInsets.zero,
+              //   alignment: Alignment.centerLeft,
+              // ),
 
               const SizedBox(height: 20),
 

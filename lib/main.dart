@@ -3,25 +3,12 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_themes.dart';
 import 'core/constants/app_strings.dart';
 import 'core/constants/app_colors.dart';
+import 'presentation/providers/auth_provider.dart';
+import 'routes/app_routes.dart';
+import 'routes/route_generator.dart';
 
 void main() {
   runApp(const MyApp());
-}
-
-// Add a basic app state provider
-class AppState extends ChangeNotifier {
-  bool _isLoggedIn = false;
-  bool get isLoggedIn => _isLoggedIn;
-
-  void login() {
-    _isLoggedIn = true;
-    notifyListeners();
-  }
-
-  void logout() {
-    _isLoggedIn = false;
-    notifyListeners();
-  }
 }
 
 class MyApp extends StatelessWidget {
@@ -31,14 +18,13 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // We'll add providers here later
-                ChangeNotifierProvider(create: (_) => AppState()),
-
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
       ],
       child: MaterialApp(
         title: AppStrings.appName,
         theme: AppThemes.lightTheme,
-        home: const SplashScreen(),
+        initialRoute: AppRoutes.splash,
+        onGenerateRoute: RouteGenerator.generateRoute,
         debugShowCheckedModeBanner: false,
       ),
     );
@@ -46,8 +32,35 @@ class MyApp extends StatelessWidget {
 }
 
 // Beautiful splash screen matching your Figma design
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkAuthStatus();
+  }
+
+  Future<void> _checkAuthStatus() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    await authProvider.checkAuthStatus();
+    
+    // Wait a bit for splash effect
+    await Future.delayed(const Duration(seconds: 2));
+    
+    if (mounted) {
+      if (authProvider.isAuthenticated) {
+        Navigator.of(context).pushReplacementNamed(AppRoutes.main);
+      } else {
+        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -188,22 +201,15 @@ class SplashScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 24),
                         
-                        // Start button
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              // TODO: Navigate to onboarding/login
-                              final appState = Provider.of<AppState>(context, listen: false);
-                              appState.login(); // Update the login state
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Navigation will be implemented next!'),
-                                ),
-                              );
-                            },
-                            child: const Text('Bắt đầu'),
-                          ),
+                        // Loading indicator
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                          strokeWidth: 3,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Đang khởi tạo...',
+                          style: AppThemes.bodyMedium,
                         ),
                       ],
                     ),

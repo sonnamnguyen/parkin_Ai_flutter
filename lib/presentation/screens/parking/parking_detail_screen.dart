@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../../routes/app_routes.dart';
 
 class ParkingDetailScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -249,7 +250,10 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         const Spacer(),
         TextButton(
           onPressed: () {
-            // TODO: Navigate to reviews
+            Navigator.of(context).pushNamed(
+              AppRoutes.ratingComments,
+              arguments: widget.parkingLot,
+            );
           },
           child: Text(
             'Xem đánh giá',

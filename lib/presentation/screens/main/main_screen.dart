@@ -59,7 +59,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-      print('MainScreen build called with drawer'); // Debug print
     return Scaffold(
       key: _scaffoldKey,
       drawer: _buildDrawer(),

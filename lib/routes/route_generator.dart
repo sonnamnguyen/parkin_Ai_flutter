@@ -14,6 +14,7 @@ import '../presentation/screens/search/search_screen.dart';
 import '../presentation/screens/notifications/notifications_screen.dart' as notifications;
 import '../data/models/parking_lot_model.dart';
 import '../data/models/parking_slot_model.dart';
+import '../presentation/screens/parking/rating_comments_screen.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -105,6 +106,14 @@ class RouteGenerator {
         return MaterialPageRoute(
           builder: (_) => const PaymentScreen(),
         );
+
+      case AppRoutes.ratingComments:
+        if (args is ParkingLot) {
+          return MaterialPageRoute(
+            builder: (_) => RatingCommentsScreen(parkingLot: args),
+          );
+        }
+        return _errorRoute();
 
       default:
         return _errorRoute();

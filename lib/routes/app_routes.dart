@@ -39,6 +39,9 @@ class AppRoutes {
   static const String services = '/services';
   static const String serviceDetail = '/service-detail';
 
+  // Reviews and ratings
+  static const String ratingComments = '/rating-comments';
+
   // Other routes
   static const String notifications = '/notifications';
   static const String settings = '/settings';

@@ -87,6 +87,12 @@ static final headingLarge = GoogleFonts.poppins(
     color: AppColors.darkGrey,
   );
 
+   static final headingSmall = GoogleFonts.poppins(
+    fontSize: 20,
+    fontWeight: FontWeight.w600,
+    color: AppColors.darkGrey,
+  );
+
   static final bodyLarge = GoogleFonts.poppins(
     fontSize: 16,
     fontWeight: FontWeight.normal,
@@ -95,6 +101,12 @@ static final headingLarge = GoogleFonts.poppins(
 
   static final bodyMedium = GoogleFonts.poppins(
     fontSize: 14,
+    fontWeight: FontWeight.normal,
+    color: AppColors.textSecondary,
+  );
+
+   static final bodySmall = GoogleFonts.poppins(
+    fontSize: 12,
     fontWeight: FontWeight.normal,
     color: AppColors.textSecondary,
   );

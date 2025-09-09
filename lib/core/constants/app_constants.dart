@@ -1,6 +1,9 @@
 class AppConstants {
   // API
-  static const String baseUrl = 'https://api.parkinai.com/v1';
+  // For Android Emulator, use 10.0.2.2 instead of localhost
+  // For iOS Simulator, use localhost
+  // For physical devices, use your computer's IP address (e.g., 192.168.1.100)
+  static const String baseUrl = 'http://10.0.2.2:8000/backend/parkin/v1';
   static const int connectionTimeout = 30000;
   static const int receiveTimeout = 30000;
   
@@ -20,6 +23,9 @@ class AppConstants {
   
   // Pagination
   static const int defaultPageSize = 20;
+
+  static const double minTopUpAmount = 50000; // 50k VND
+  static const double maxTopUpAmount = 5000000; // 5M VND
   
   // File Upload
   static const int maxImageSize = 5 * 1024 * 1024; // 5MB

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import '../presentation/screens/auth/login_screen.dart';
 import '../presentation/screens/auth/register_screen.dart';
-import '../presentation/screens/auth/verification_screen.dart';
 import '../presentation/screens/main/main_screen.dart';
+import '../presentation/screens/profile/profile_screen.dart';
+import '../presentation/screens/profile/profile_edit_screen.dart';
 import '../presentation/screens/profile/my_cars_screen.dart';
+import '../presentation/screens/profile/car_form_screen.dart';
 import '../presentation/screens/parking/parking_detail_screen.dart';
 import '../presentation/screens/parking/slot_selection_screen.dart';
 import '../presentation/screens/parking/order_detail_screen.dart';
@@ -14,6 +16,7 @@ import '../presentation/screens/search/search_screen.dart';
 import '../presentation/screens/notifications/notifications_screen.dart' as notifications;
 import '../data/models/parking_lot_model.dart';
 import '../data/models/parking_slot_model.dart';
+import '../data/models/vehicle_model.dart';
 import '../presentation/screens/parking/rating_comments_screen.dart';
 import '../main.dart';
 
@@ -37,26 +40,39 @@ class RouteGenerator {
           builder: (_) => const RegisterScreen(),
         );
 
-      case AppRoutes.verification:
-        return MaterialPageRoute(
-          builder: (_) => const VerificationScreen(),
-          settings: settings, // Pass arguments to screen
-        );
-
-      case AppRoutes.verificationSuccess:
-        return MaterialPageRoute(
-          builder: (_) => const VerificationSuccessScreen(),
-        );
 
       case AppRoutes.main:
         return MaterialPageRoute(
           builder: (_) => const MainScreen(),
         );
 
+      case AppRoutes.profile:
+        return MaterialPageRoute(
+          builder: (_) => const ProfileScreen(),
+        );
+
+      case AppRoutes.profileEdit:
+        return MaterialPageRoute(
+          builder: (_) => const ProfileEditScreen(),
+        );
+
       case AppRoutes.myCars:
         return MaterialPageRoute(
           builder: (_) => const MyCarsScreen(),
         );
+
+      case AppRoutes.addCar:
+        return MaterialPageRoute(
+          builder: (_) => const CarFormScreen(),
+        );
+
+      case AppRoutes.editCar:
+        if (args is Vehicle) {
+          return MaterialPageRoute(
+            builder: (_) => CarFormScreen(vehicle: args),
+          );
+        }
+        return _errorRoute();
 
       case AppRoutes.search:
         return MaterialPageRoute(

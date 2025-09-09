@@ -329,10 +329,10 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
               CircleAvatar(
                 radius: 20,
                 backgroundColor: review.userColor.withOpacity(0.2),
-                backgroundImage: review.avatarUrl.isNotEmpty
+                backgroundImage: (review.avatarUrl.isNotEmpty && review.avatarUrl.startsWith('http'))
                     ? NetworkImage(review.avatarUrl)
                     : null,
-                child: review.avatarUrl.isEmpty
+                child: (review.avatarUrl.isEmpty || !review.avatarUrl.startsWith('http'))
                     ? Text(
                         review.userInitial,
                         style: AppThemes.bodyMedium.copyWith(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../data/models/login_request_model.dart';
 import '../../widgets/common/custom_text_field.dart';
 import '../../widgets/common/custom_button.dart';
 
@@ -18,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
+  final AuthService _authService = AuthService();
 
   @override
   void dispose() {
@@ -40,10 +43,22 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // TODO: Implement actual login logic
-      await Future.delayed(const Duration(seconds: 2)); // Simulate API call
+      final loginRequest = LoginRequest(
+        account: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      final authResponse = await _authService.login(loginRequest);
       
       if (mounted) {
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đăng nhập thành công! Chào mừng ${authResponse.username}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        
         // Navigate to main screen on success
         Navigator.of(context).pushReplacementNamed('/main');
       }
@@ -149,13 +164,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Email/Phone Field
                     CustomTextField(
                       controller: _emailController,
-                      label: 'Số điện thoại',
-                      hintText: '+849876544321',
-                      keyboardType: TextInputType.phone,
-                      prefixIcon: Icons.phone_outlined,
+                      label: 'Email hoặc số điện thoại',
+                      hintText: 'user@gmail.com hoặc +849876544321',
+                      keyboardType: TextInputType.emailAddress,
+                      prefixIcon: Icons.email_outlined,
                       validator: (value) {
                         if (value?.isEmpty ?? true) {
-                          return 'Vui lòng nhập số điện thoại';
+                          return 'Vui lòng nhập email hoặc số điện thoại';
                         }
                         return null;
                       },
@@ -181,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (value?.isEmpty ?? true) {
                           return 'Vui lòng nhập mật khẩu';
                         }
-                        if (value!.length < 6) {
+                        if (value!.length < 2) {
                           return 'Mật khẩu phải có ít nhất 6 ký tự';
                         }
                         return null;

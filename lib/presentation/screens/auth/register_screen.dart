@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../data/models/register_request_model.dart';
 import '../../widgets/common/custom_text_field.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../widgets/common/terms_conditions_dialog.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -20,11 +23,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _birthDateController = TextEditingController();
   
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
   bool _agreeToTerms = false;
+  String _selectedGender = 'male';
+  DateTime? _selectedBirthDate;
+  final AuthService _authService = AuthService();
 
   @override
   void dispose() {
@@ -34,6 +41,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _birthDateController.dispose();
     super.dispose();
   }
 
@@ -47,6 +55,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
     });
+  }
+
+  Future<void> _selectBirthDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedBirthDate ?? DateTime(2000, 1, 1),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now().subtract(const Duration(days: 365 * 13)), // Minimum 13 years old
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColors.primary,
+              onPrimary: AppColors.white,
+              surface: AppColors.white,
+              onSurface: AppColors.darkGrey,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null && picked != _selectedBirthDate) {
+      setState(() {
+        _selectedBirthDate = picked;
+        _birthDateController.text = _formatDate(picked);
+      });
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
+  Future<void> _showTermsAndConditions() async {
+    final bool? agreed = await TermsConditionsDialog.show(context);
+    if (agreed == true) {
+      setState(() {
+        _agreeToTerms = true;
+      });
+    }
   }
 
   Future<void> _register() async {
@@ -67,18 +117,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      // TODO: Implement actual registration logic
-      await Future.delayed(const Duration(seconds: 2)); // Simulate API call
+      final registerRequest = RegisterRequest(
+        username: _usernameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        phone: _phoneController.text.trim(),
+        fullName: _fullNameController.text.trim(),
+        gender: _selectedGender,
+        birthDate: _selectedBirthDate != null 
+            ? '${_selectedBirthDate!.year}-${_selectedBirthDate!.month.toString().padLeft(2, '0')}-${_selectedBirthDate!.day.toString().padLeft(2, '0')}'
+            : '2000-01-01',
+      );
+
+      final authResponse = await _authService.register(registerRequest);
       
       if (mounted) {
-        // Navigate to verification screen
-        Navigator.of(context).pushNamed(
-          '/verification',
-          arguments: {
-            'phone': _phoneController.text,
-            'from': 'register',
-          },
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đăng ký thành công! Chào mừng ${authResponse.username}'),
+            backgroundColor: AppColors.success,
+          ),
         );
+        
+        // Navigate to main screen on success
+        Navigator.of(context).pushReplacementNamed('/main');
       }
     } catch (e) {
       if (mounted) {
@@ -247,6 +310,73 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                     const SizedBox(height: 20),
 
+                    // Gender Field
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Giới tính',
+                          style: AppThemes.bodyMedium.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.darkGrey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text('Nam'),
+                                value: 'male',
+                                groupValue: _selectedGender,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedGender = value!;
+                                  });
+                                },
+                                activeColor: AppColors.primary,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text('Nữ'),
+                                value: 'female',
+                                groupValue: _selectedGender,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedGender = value!;
+                                  });
+                                },
+                                activeColor: AppColors.primary,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Birth Date Field
+                    CustomTextField(
+                      controller: _birthDateController,
+                      label: 'Ngày sinh',
+                      hintText: 'dd/mm/yyyy',
+                      readOnly: true,
+                      prefixIcon: Icons.calendar_today_outlined,
+                      onTap: _selectBirthDate,
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) {
+                          return 'Vui lòng chọn ngày sinh';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
                     // Password Field
                     CustomTextField(
                       controller: _passwordController,
@@ -308,28 +438,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Checkbox(
                           value: _agreeToTerms,
                           onChanged: (value) {
-                            setState(() {
-                              _agreeToTerms = value ?? false;
-                            });
+                            if (value == true && !_agreeToTerms) {
+                              _showTermsAndConditions();
+                            } else {
+                              setState(() {
+                                _agreeToTerms = value ?? false;
+                              });
+                            }
                           },
                           activeColor: AppColors.primary,
                         ),
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.only(top: 12),
-                            child: RichText(
-                              text: TextSpan(
-                                style: AppThemes.bodyMedium,
-                                children: [
-                                  const TextSpan(text: 'Tôi đồng ý với các '),
-                                  TextSpan(
-                                    text: 'điều khoản và điều kiện',
-                                    style: AppThemes.bodyMedium.copyWith(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w600,
+                            child: GestureDetector(
+                              onTap: _showTermsAndConditions,
+                              child: RichText(
+                                text: TextSpan(
+                                  style: AppThemes.bodyMedium,
+                                  children: [
+                                    const TextSpan(text: 'Tôi đồng ý với các '),
+                                    TextSpan(
+                                      text: 'điều khoản và điều kiện',
+                                      style: AppThemes.bodyMedium.copyWith(
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),

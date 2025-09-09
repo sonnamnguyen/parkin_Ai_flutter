@@ -3,8 +3,6 @@ class AppRoutes {
   static const String splash = '/';
   static const String login = '/login';
   static const String register = '/register';
-  static const String verification = '/verification';
-  static const String verificationSuccess = '/verification-success';
   static const String forgotPassword = '/forgot-password';
 
   // Main app routes
@@ -12,6 +10,8 @@ class AppRoutes {
   static const String home = '/home';
 
   // Profile routes
+  static const String profile = '/profile';
+  static const String profileEdit = '/profile-edit';
   static const String myCars = '/my-cars';
   static const String addCar = '/add-car';
   static const String editCar = '/edit-car';

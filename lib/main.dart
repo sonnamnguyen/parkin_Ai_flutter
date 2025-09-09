@@ -3,11 +3,19 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_themes.dart';
 import 'core/constants/app_strings.dart';
 import 'core/constants/app_colors.dart';
+import 'core/services/storage_service.dart';
+import 'core/network/api_client.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'routes/app_routes.dart';
 import 'routes/route_generator.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize services
+  await StorageService().initialize();
+  ApiClient().initialize();
+  
   runApp(const MyApp());
 }
 

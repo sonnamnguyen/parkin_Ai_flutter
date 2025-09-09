@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
+import '../../../core/services/parking_lot_service.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../routes/app_routes.dart';
 
@@ -16,13 +17,104 @@ class ParkingDetailScreen extends StatefulWidget {
 }
 
 class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
+  final ParkingLotService _parkingLotService = ParkingLotService();
+  ParkingLot? _currentParkingLot;
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentParkingLot = widget.parkingLot;
+    _loadParkingLotDetail();
+  }
+
+  Future<void> _loadParkingLotDetail() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final parkingLot = await _parkingLotService.getParkingLotDetail(widget.parkingLot.id);
+      setState(() {
+        _currentParkingLot = parkingLot;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+      print('Error loading parking lot detail: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final parkingLot = _currentParkingLot ?? widget.parkingLot;
+    
+    if (_isLoading) {
+      return Scaffold(
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Đang tải thông tin...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: AppColors.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Lỗi tải thông tin',
+                style: AppThemes.headingMedium.copyWith(
+                  color: AppColors.error,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: AppThemes.bodyMedium.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _loadParkingLotDetail,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.white,
+                ),
+                child: const Text('Thử lại'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Column(
         children: [
           // Image Header
-          _buildImageHeader(),
+          _buildImageHeader(parkingLot),
           
           // Content
           Expanded(
@@ -31,15 +123,15 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildParkingInfo(),
+                  _buildParkingInfo(parkingLot),
                   const SizedBox(height: 24),
-                  _buildRating(),
+                  _buildRating(parkingLot),
                   const SizedBox(height: 24),
-                  _buildDescription(),
+                  _buildDescription(parkingLot),
                   const SizedBox(height: 24),
-                  _buildAmenities(),
+                  _buildAmenities(parkingLot),
                   const SizedBox(height: 24),
-                  _buildOperatingHours(),
+                  _buildOperatingHours(parkingLot),
                   const SizedBox(height: 100),
                 ],
               ),
@@ -49,18 +141,20 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
       ),
       
       // Bottom Action Bar
-      bottomNavigationBar: _buildBottomActionBar(),
+      bottomNavigationBar: _buildBottomActionBar(parkingLot),
     );
   }
 
-  Widget _buildImageHeader() {
+  Widget _buildImageHeader(ParkingLot parkingLot) {
     return Container(
       height: 250,
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.lightGrey,
         image: DecorationImage(
-          image: NetworkImage(widget.parkingLot.imageUrl),
+          image: (parkingLot.imageUrl.isNotEmpty && parkingLot.imageUrl.startsWith('http'))
+              ? NetworkImage(parkingLot.imageUrl)
+              : const AssetImage('assets/images/parking_placeholder.jpg') as ImageProvider,
           fit: BoxFit.cover,
           onError: (exception, stackTrace) {},
         ),
@@ -139,12 +233,12 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildParkingInfo() {
+  Widget _buildParkingInfo(ParkingLot parkingLot) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.parkingLot.name,
+          parkingLot.name,
           style: AppThemes.headingMedium.copyWith(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -161,7 +255,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
             const SizedBox(width: 4),
             Expanded(
               child: Text(
-                widget.parkingLot.address,
+                parkingLot.address,
                 style: AppThemes.bodyMedium,
               ),
             ),
@@ -172,13 +266,13 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
           children: [
             _buildInfoChip(
               icon: Icons.local_parking,
-              text: '${widget.parkingLot.availableSlots} chỗ trống',
+              text: '${parkingLot.availableSlots} chỗ trống',
               color: AppColors.success,
             ),
             const SizedBox(width: 12),
             _buildInfoChip(
               icon: Icons.attach_money,
-              text: widget.parkingLot.priceText,
+              text: parkingLot.formattedPrice,
               color: AppColors.primary,
             ),
           ],
@@ -215,7 +309,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildRating() {
+  Widget _buildRating(ParkingLot parkingLot) {
     return Row(
       children: [
         Container(
@@ -228,7 +322,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                widget.parkingLot.rating.toString(),
+                parkingLot.rating.toString(),
                 style: AppThemes.bodyMedium.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -244,7 +338,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         ),
         const SizedBox(width: 8),
         Text(
-          '${widget.parkingLot.reviewCount} đánh giá',
+          '${parkingLot.reviewCount} đánh giá',
           style: AppThemes.bodyMedium,
         ),
         const Spacer(),
@@ -252,7 +346,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
           onPressed: () {
             Navigator.of(context).pushNamed(
               AppRoutes.ratingComments,
-              arguments: widget.parkingLot,
+              arguments: parkingLot,
             );
           },
           child: Text(
@@ -267,7 +361,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildDescription() {
+  Widget _buildDescription(ParkingLot parkingLot) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -280,7 +374,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          widget.parkingLot.description,
+          parkingLot.description,
           style: AppThemes.bodyMedium.copyWith(
             height: 1.5,
           ),
@@ -289,8 +383,8 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildAmenities() {
-    if (widget.parkingLot.amenities.isEmpty) return const SizedBox();
+  Widget _buildAmenities(ParkingLot parkingLot) {
+    if (parkingLot.amenities.isEmpty) return const SizedBox();
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,7 +400,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: widget.parkingLot.amenities.map((amenity) {
+          children: parkingLot.amenities.map((amenity) {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -326,7 +420,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildOperatingHours() {
+  Widget _buildOperatingHours(ParkingLot parkingLot) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -347,21 +441,21 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
           child: Row(
             children: [
               Icon(
-                widget.parkingLot.isOpen ? Icons.access_time : Icons.access_time_filled,
-                color: widget.parkingLot.isOpen ? AppColors.success : AppColors.error,
+                parkingLot.isOpen ? Icons.access_time : Icons.access_time_filled,
+                color: parkingLot.isOpen ? AppColors.success : AppColors.error,
                 size: 20,
               ),
               const SizedBox(width: 12),
               Text(
-                widget.parkingLot.isOpen ? 'Đang mở cửa' : 'Đã đóng cửa',
+                parkingLot.isOpen ? 'Đang mở cửa' : 'Đã đóng cửa',
                 style: AppThemes.bodyMedium.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: widget.parkingLot.isOpen ? AppColors.success : AppColors.error,
+                  color: parkingLot.isOpen ? AppColors.success : AppColors.error,
                 ),
               ),
               const Spacer(),
               Text(
-                widget.parkingLot.operatingHours.getTodayHours(),
+                parkingLot.operatingHours?.getTodayHours() ?? 'N/A',
                 style: AppThemes.bodyMedium,
               ),
             ],
@@ -371,7 +465,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     );
   }
 
-  Widget _buildBottomActionBar() {
+  Widget _buildBottomActionBar(ParkingLot parkingLot) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -396,7 +490,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
                   style: AppThemes.bodySmall,
                 ),
                 Text(
-                  widget.parkingLot.priceText,
+                  parkingLot.formattedPrice,
                   style: AppThemes.headingSmall.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.bold,
@@ -408,10 +502,10 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
             Expanded(
               child: CustomButton(
                 text: 'Đặt chỗ ngay',
-                onPressed: widget.parkingLot.hasAvailableSlots 
+                onPressed: parkingLot.hasAvailableSlots 
                     ? () => _navigateToSlotSelection() 
                     : null,
-                backgroundColor: widget.parkingLot.hasAvailableSlots 
+                backgroundColor: parkingLot.hasAvailableSlots 
                     ? AppColors.primary 
                     : AppColors.textSecondary,
               ),
@@ -423,9 +517,10 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
   }
 
   void _navigateToSlotSelection() {
+    final parkingLot = _currentParkingLot ?? widget.parkingLot;
     Navigator.of(context).pushNamed(
       '/select-slot',
-      arguments: widget.parkingLot,
+      arguments: parkingLot,
     );
   }
 }

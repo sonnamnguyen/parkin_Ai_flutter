@@ -1,31 +1,31 @@
 class ApiEndpoints {
-  // Base URL - update this when your backend is ready
-  static const String baseUrl = 'https://api.parkinai.com/v1';
   
-  // Authentication endpoints
-  static const String login = '/auth/login';
-  static const String register = '/auth/register';
+  // Auth endpoints
+  static const String login = '/login';
+  static const String register = '/register';
   static const String forgotPassword = '/auth/forgot-password';
   static const String verifyCode = '/auth/verify-code';
   static const String refreshToken = '/auth/refresh-token';
   static const String logout = '/auth/logout';
   
   // User endpoints
-  static const String profile = '/user/profile';
-  static const String updateProfile = '/user/profile';
-  static const String uploadAvatar = '/user/avatar';
+  static const String profile = '/profile';
+  static const String updateProfile = '/profile';
+  static const String uploadAvatar = '/profile/avatar';
   
   // Vehicle endpoints
-  static const String vehicles = '/user/vehicles';
-  static const String addVehicle = '/user/vehicles';
-  static String updateVehicle(int id) => '/user/vehicles/$id';
-  static String deleteVehicle(int id) => '/user/vehicles/$id';
+  static const String vehicles = '/vehicles';
+  static const String addVehicle = '/vehicles';
+  static String updateVehicle(int id) => '/vehicles/$id';
+  static String deleteVehicle(int id) => '/vehicles/$id';
+  static String getVehicleDetail(int id) => '/vehicles/$id';
   
   // Parking endpoints
+  static const String parkingLots = '/parking-lots';
+  static String parkingLotDetail(int id) => '/parking-lots/$id';
+  static String parkingSlots(int lotId) => '/parking-lots/$lotId/slots';
   static const String nearbyParkingLots = '/parking/nearby';
   static const String searchParkingLots = '/parking/search';
-  static String parkingLotDetail(int id) => '/parking/lots/$id';
-  static String parkingSlots(int lotId) => '/parking/lots/$lotId/slots';
   
   // Booking endpoints
   static const String createBooking = '/bookings';

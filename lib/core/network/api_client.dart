@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../constants/app_constants.dart';
+import '../services/storage_service.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -55,12 +56,14 @@ class ApiClient {
   }
 
   String? _getStoredToken() {
-    // TODO: Implement token retrieval from storage
-    return null;
+    return StorageService().getToken();
   }
 
   void _handleUnauthorized() {
-    // TODO: Implement logout and redirect to login
+    // Clear stored token and user data
+    StorageService().removeToken();
+    StorageService().removeUserData();
+    // TODO: Navigate to login screen
   }
 
   // GET request

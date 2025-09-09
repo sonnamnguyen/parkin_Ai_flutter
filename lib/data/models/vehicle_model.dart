@@ -1,6 +1,7 @@
 class Vehicle {
   final int id;
   final int userId;
+  final String username;
   final String licensePlate;
   final String brand;
   final String model;
@@ -11,6 +12,7 @@ class Vehicle {
   Vehicle({
     required this.id,
     required this.userId,
+    required this.username,
     required this.licensePlate,
     required this.brand,
     required this.model,
@@ -20,19 +22,41 @@ class Vehicle {
   });
 
   factory Vehicle.fromJson(Map<String, dynamic> json) => Vehicle(
-    id: json['id'] as int,
-    userId: json['user_id'] as int,
-    licensePlate: json['license_plate'] as String,
-    brand: json['brand'] as String,
-    model: json['model'] as String,
-    color: json['color'] as String,
-    type: json['type'] as String,
-    createdAt: DateTime.parse(json['created_at']),
+    id: _parseInt(json['id']),
+    userId: _parseInt(json['user_id']),
+    username: json['username']?.toString() ?? '',
+    licensePlate: json['license_plate']?.toString() ?? '',
+    brand: json['brand']?.toString() ?? '',
+    model: json['model']?.toString() ?? '',
+    color: json['color']?.toString() ?? '',
+    type: json['type']?.toString() ?? 'car',
+    createdAt: _parseDateTime(json['created_at']),
   );
+
+  static int _parseInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        return DateTime.now();
+      }
+    }
+    return DateTime.now();
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'user_id': userId,
+    'username': username,
     'license_plate': licensePlate,
     'brand': brand,
     'model': model,
@@ -44,6 +68,7 @@ class Vehicle {
   Vehicle copyWith({
     int? id,
     int? userId,
+    String? username,
     String? licensePlate,
     String? brand,
     String? model,
@@ -53,6 +78,7 @@ class Vehicle {
   }) => Vehicle(
     id: id ?? this.id,
     userId: userId ?? this.userId,
+    username: username ?? this.username,
     licensePlate: licensePlate ?? this.licensePlate,
     brand: brand ?? this.brand,
     model: model ?? this.model,

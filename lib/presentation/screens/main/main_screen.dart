@@ -85,7 +85,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildDrawer() {
-      print('_buildDrawer() called - drawer is being built'); // Add this
     return Drawer(
       child: Container(
         decoration: const BoxDecoration(
@@ -331,6 +330,46 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         
         const SizedBox(height: 20),
         
+        // Profile
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pushNamed('/profile');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.person_outline,
+                      color: AppColors.textSecondary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Thông tin cá nhân',
+                      style: AppThemes.bodyMedium.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: AppColors.lightGrey,
+                      size: 16,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        
         // Settings
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -428,10 +467,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             ),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
-              // TODO: Implement logout
-              Provider.of<AuthProvider>(context, listen: false).logout();
+              // Implement logout
+              await Provider.of<AuthProvider>(context, listen: false).logout();
+              // Navigate to login screen
+              if (mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,

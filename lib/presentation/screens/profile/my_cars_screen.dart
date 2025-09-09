@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/services/vehicle_service.dart';
+import '../../../data/models/vehicle_model.dart';
+import '../../../data/models/vehicle_list_response_model.dart';
 import '../../widgets/common/custom_button.dart';
 
 class MyCarsScreen extends StatefulWidget {
@@ -12,33 +15,110 @@ class MyCarsScreen extends StatefulWidget {
 }
 
 class _MyCarsScreenState extends State<MyCarsScreen> {
-  // Mock data for cars
-  final List<Map<String, dynamic>> _cars = [
-    {
-      'id': 1,
-      'brand': 'Mercedes',
-      'model': 'G 63',
-      'licensePlate': 'A 61026',
-      'color': 'Black',
-      'image': 'assets/images/mercedes_g63.png', // This would be actual asset
-    },
-    {
-      'id': 2,
-      'brand': 'Ford',
-      'model': 'F350',
-      'licensePlate': 'A 61026',
-      'color': 'Blue',
-      'image': 'assets/images/ford_f350.png',
-    },
-    {
-      'id': 3,
-      'brand': 'Tesla',
-      'model': 'Model 3',
-      'licensePlate': 'B 10033',
-      'color': 'White',
-      'image': 'assets/images/tesla_model3.png',
-    },
-  ];
+  final VehicleService _vehicleService = VehicleService();
+  final List<Vehicle> _vehicles = [];
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalVehicles = 0;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVehicles();
+  }
+
+  Future<void> _loadVehicles({bool loadMore = false}) async {
+    print('Loading vehicles - loadMore: $loadMore, currentPage: $_currentPage');
+    
+    if (loadMore) {
+      if (_isLoadingMore || _currentPage >= _totalPages) return;
+      setState(() {
+        _isLoadingMore = true;
+      });
+    } else {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _currentPage = 1;
+        _vehicles.clear();
+      });
+    }
+
+    try {
+      final response = await _vehicleService.getVehicles(
+        type: 'car',
+        page: _currentPage,
+        pageSize: 10,
+      );
+      
+      print('Received response: ${response.list.length} vehicles, total: ${response.total}');
+
+      setState(() {
+        if (loadMore) {
+          _vehicles.addAll(response.list);
+          _currentPage++;
+        } else {
+          _vehicles.clear();
+          _vehicles.addAll(response.list);
+          _currentPage = 2; // Next page for load more
+        }
+        
+        _totalVehicles = response.total;
+        _totalPages = (_totalVehicles / 10).ceil();
+        _error = null;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi tải danh sách xe: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    }
+  }
+
+  Future<void> _deleteVehicle(Vehicle vehicle) async {
+    try {
+      await _vehicleService.deleteVehicle(vehicle.id);
+      
+      setState(() {
+        _vehicles.removeWhere((v) => v.id == vehicle.id);
+        _totalVehicles--;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đã xóa xe ${vehicle.brand} ${vehicle.model}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi xóa xe: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,17 +143,41 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header with total count
+            if (_totalVehicles > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(
+                  'Tổng cộng: $_totalVehicles xe',
+                  style: AppThemes.bodyMedium.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            
             // Cars List
             Expanded(
-              child: _cars.isEmpty
-                  ? _buildEmptyState()
-                  : ListView.builder(
-                      itemCount: _cars.length,
-                      itemBuilder: (context, index) {
-                        final car = _cars[index];
-                        return _buildCarCard(car, index);
-                      },
-                    ),
+              child: _isLoading
+                  ? _buildLoadingState()
+                  : _vehicles.isEmpty
+                      ? _buildEmptyState()
+                      : RefreshIndicator(
+                          onRefresh: () => _loadVehicles(),
+                          child: ListView.builder(
+                            itemCount: _vehicles.length + (_isLoadingMore ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index == _vehicles.length) {
+                                // Load more when reaching the end
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  _loadVehicles(loadMore: true);
+                                });
+                                return _buildLoadMoreIndicator();
+                              }
+                              final vehicle = _vehicles[index];
+                              return _buildCarCard(vehicle, index);
+                            },
+                          ),
+                        ),
             ),
             
             const SizedBox(height: 20),
@@ -86,6 +190,25 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
               icon: Icons.add,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Center(
+      child: CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
         ),
       ),
     );
@@ -121,7 +244,7 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
     );
   }
 
-  Widget _buildCarCard(Map<String, dynamic> car, int index) {
+  Widget _buildCarCard(Vehicle vehicle, int index) {
     // Colors for different car types
     final List<Color> cardColors = [
       AppColors.primary,
@@ -172,23 +295,30 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${car['brand']} ${car['model']}',
+                  '${vehicle.brand} ${vehicle.model}',
                   style: AppThemes.bodyLarge.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  car['licensePlate'],
+                  vehicle.licensePlate,
                   style: AppThemes.bodyMedium.copyWith(
                     color: AppColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  car['color'],
+                  vehicle.color,
                   style: AppThemes.bodySmall.copyWith(
                     color: AppColors.textSecondary.withOpacity(0.7),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tạo: ${_formatDate(vehicle.createdAt)}',
+                  style: AppThemes.bodySmall.copyWith(
+                    color: AppColors.textSecondary.withOpacity(0.5),
                   ),
                 ),
               ],
@@ -205,7 +335,7 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: _buildCarImage(car['image']),
+              child: _buildCarImage(),
             ),
           ),
           
@@ -213,7 +343,7 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
           
           // Options Menu
           PopupMenuButton<String>(
-            onSelected: (value) => _handleCarAction(value, car),
+            onSelected: (value) => _handleCarAction(value, vehicle),
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: 'edit',
@@ -257,7 +387,7 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
     );
   }
 
-  Widget _buildCarImage(String imagePath) {
+  Widget _buildCarImage() {
     // Since we don't have actual car images, show a placeholder
     return Container(
       width: 80,
@@ -279,31 +409,49 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
     );
   }
 
-  void _navigateToAddCar() {
-    Navigator.of(context).pushNamed('/add-car');
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 
-  void _handleCarAction(String action, Map<String, dynamic> car) {
+  void _navigateToAddCar() async {
+    print('Navigating to add car screen');
+    final result = await Navigator.of(context).pushNamed('/add-car');
+    print('Returned from add car screen with result: $result');
+    if (result == true) {
+      // Refresh the list when a new car is added
+      print('Refreshing vehicle list...');
+      _loadVehicles();
+    }
+  }
+
+  void _handleCarAction(String action, Vehicle vehicle) {
     switch (action) {
       case 'edit':
-        _editCar(car);
+        _editCar(vehicle);
         break;
       case 'delete':
-        _deleteCar(car);
+        _showDeleteConfirmation(vehicle);
         break;
     }
   }
 
-  void _editCar(Map<String, dynamic> car) {
-    Navigator.of(context).pushNamed('/edit-car', arguments: car);
+  void _editCar(Vehicle vehicle) async {
+    print('Editing vehicle: ${vehicle.toString()}');
+    final result = await Navigator.of(context).pushNamed('/edit-car', arguments: vehicle);
+    print('Returned from edit car screen with result: $result');
+    if (result == true) {
+      // Refresh the list when a car is updated
+      print('Refreshing vehicle list after edit...');
+      _loadVehicles();
+    }
   }
 
-  void _deleteCar(Map<String, dynamic> car) {
+  void _showDeleteConfirmation(Vehicle vehicle) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(AppStrings.delete),
-        content: Text('Bạn có chắc chắn muốn xóa xe ${car['brand']} ${car['model']}?'),
+        content: Text('Bạn có chắc chắn muốn xóa xe ${vehicle.brand} ${vehicle.model}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -311,17 +459,8 @@ class _MyCarsScreenState extends State<MyCarsScreen> {
           ),
           TextButton(
             onPressed: () {
-              setState(() {
-                _cars.removeWhere((c) => c['id'] == car['id']);
-              });
               Navigator.of(context).pop();
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Đã xóa xe ${car['brand']} ${car['model']}'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
+              _deleteVehicle(vehicle);
             },
             child: Text(
               AppStrings.delete,

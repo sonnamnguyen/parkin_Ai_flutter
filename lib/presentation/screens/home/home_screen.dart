@@ -7,8 +7,10 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
+import '../../../data/models/parking_lot_list_response_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../../data/models/parking_hours_model.dart';
+import '../../../core/services/parking_lot_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
+  final ParkingLotService _parkingLotService = ParkingLotService();
   bool _isAnalyzing = false;
   GoogleMapController? _mapController;
   Position? _currentPosition;
@@ -26,26 +29,169 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Set<Marker> _markers = {};
   bool _isMapReady = false;
   bool _isLoadingLocation = true;
+  bool _isLoadingParkingLots = false;
+  List<ParkingLot> _nearbyParking = [];
+  String? _error;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
   
-  // Mock data for nearby parking lots in HCMC area
-  final List<ParkingLot> _nearbyParking = [
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeLocation();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+    try {
+      await _requestLocationPermission();
+      if (_isLocationPermissionGranted) {
+        await _getCurrentLocation();
+      }
+    } catch (e) {
+      debugPrint('Init location error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    if (!_isLocationPermissionGranted) return;
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _currentPosition = position;
+      });
+
+      if (_isMapReady) {
+        _updateMapLocation();
+        await _loadNearbyParkingLots();
+      }
+    } catch (e) {
+      debugPrint('Error getting location: $e');
+    }
+  }
+
+  void _updateMapLocation() {
+    if (_mapController != null && _currentPosition != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLng(
+          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+        ),
+      );
+    }
+  }
+
+  Future<void> _loadNearbyParkingLots() async {
+    final double targetLat = _currentPosition?.latitude ?? _hcmCenter.latitude;
+    final double targetLng = _currentPosition?.longitude ?? _hcmCenter.longitude;
+
+    debugPrint('Home: requesting lots at lat=$targetLat, lng=$targetLng');
+
+    setState(() {
+      _isLoadingParkingLots = true;
+      _error = null;
+    });
+
+    try {
+      final response = await _parkingLotService.getNearbyParkingLots(
+        latitude: targetLat,
+        longitude: targetLng,
+        radius: 5.0,
+        page: 1,
+        pageSize: 20,
+      );
+
+      setState(() {
+        _nearbyParking = response.list;
+        _isLoadingParkingLots = false;
+      });
+
+      debugPrint('Home: received ${response.list.length} lots');
+      await _createMarkersFromParkingLots();
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoadingParkingLots = false;
+      });
+      print('Error loading parking lots: $e');
+    }
+  }
+
+  Future<void> _createMarkersFromParkingLots() async {
+    if (!_isMapReady || _mapController == null) return;
+
+    final markers = <Marker>{};
+    
+    for (int i = 0; i < _nearbyParking.length; i++) {
+      final parking = _nearbyParking[i];
+      final marker = Marker(
+        markerId: MarkerId('parking_${parking.id}'),
+        position: LatLng(parking.latitude, parking.longitude),
+        infoWindow: InfoWindow(
+          title: parking.name,
+          snippet: '${parking.availableSlots}/${parking.totalSlots} chỗ trống',
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          parking.hasAvailableSlots ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+        ),
+        onTap: () {
+          setState(() {
+            _selectedParking = parking;
+          });
+        },
+      );
+      markers.add(marker);
+    }
+
+    setState(() {
+      _markers = markers;
+    });
+  }
+
+  // Mock data for nearby parking lots in HCMC area (fallback)
+  final List<ParkingLot> _mockNearbyParking = [
     ParkingLot(
       id: 1,
       name: 'Bãi xe Đại học Khoa học Tự nhiên',
       address: '227 Nguyễn Văn Cừ, Quận 5, TP.HCM',
       latitude: 10.7624,
       longitude: 106.6808,
-      pricePerHour: 15000,
+      ownerId: 1,
+      isVerified: true,
+      isActive: true,
       totalSlots: 50,
       availableSlots: 12,
+      pricePerHour: 15000,
+      description: 'Bãi đậu xe an toàn gần đại học',
+      openTime: '06:00',
+      closeTime: '22:00',
+      imageUrl: '',
+      images: [],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
       rating: 4.1,
       reviewCount: 127,
-      imageUrl: '',
       amenities: ['CCTV', 'Bảo vệ 24/7'],
-      description: 'Bãi đậu xe an toàn gần đại học',
       operatingHours: ParkingHours(
         monday: '06:00 - 22:00',
         tuesday: '06:00 - 22:00',
@@ -64,14 +210,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       address: '283 Nguyễn Đình Chiểu, Quận 3, TP.HCM',
       latitude: 10.7798,
       longitude: 106.6879,
-      pricePerHour: 20000,
+      ownerId: 2,
+      isVerified: true,
+      isActive: true,
       totalSlots: 35,
       availableSlots: 8,
+      pricePerHour: 20000,
+      description: 'Bãi đậu xe trung tâm quận 3',
+      openTime: '06:00',
+      closeTime: '23:00',
+      imageUrl: '',
+      images: [],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
       rating: 4.3,
       reviewCount: 89,
-      imageUrl: '',
       amenities: ['CCTV', 'Bảo vệ 24/7', 'Mái che'],
-      description: 'Bãi đậu xe trung tâm quận 3',
       operatingHours: ParkingHours(
         monday: '06:00 - 23:00',
         tuesday: '06:00 - 23:00',
@@ -90,14 +244,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       address: '469 Nguyễn Hữu Thọ, Quận 7, TP.HCM',
       latitude: 10.7411,
       longitude: 106.7200,
-      pricePerHour: 10000,
+      ownerId: 3,
+      isVerified: true,
+      isActive: true,
       totalSlots: 120,
       availableSlots: 45,
+      pricePerHour: 10000,
+      description: 'Bãi đậu xe tại trung tâm thương mại',
+      openTime: '07:00',
+      closeTime: '22:00',
+      imageUrl: '',
+      images: [],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
       rating: 4.5,
       reviewCount: 203,
-      imageUrl: '',
       amenities: ['CCTV', 'Bảo vệ 24/7', 'Mái che', 'Thang máy'],
-      description: 'Bãi đậu xe tại trung tâm thương mại',
       operatingHours: ParkingHours(
         monday: '07:00 - 22:00',
         tuesday: '07:00 - 22:00',
@@ -116,14 +278,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       address: 'Đường Võ Văn Ngân, TP. Thủ Đức, TP.HCM',
       latitude: 10.8505,
       longitude: 106.7717,
-      pricePerHour: 12000,
+      ownerId: 4,
+      isVerified: true,
+      isActive: true,
       totalSlots: 80,
       availableSlots: 23,
+      pricePerHour: 12000,
+      description: 'Bãi đậu xe gần khu công nghệ cao',
+      openTime: '06:30',
+      closeTime: '21:30',
+      imageUrl: '',
+      images: [],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
       rating: 4.0,
       reviewCount: 156,
-      imageUrl: '',
       amenities: ['CCTV', 'Bảo vệ ban ngày'],
-      description: 'Bãi đậu xe gần khu công nghệ cao',
       operatingHours: ParkingHours(
         monday: '06:30 - 21:30',
         tuesday: '06:30 - 21:30',
@@ -140,50 +310,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   ParkingLot? _selectedParking;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _initializeLocation();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _searchController.dispose();
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      _checkLocationPermission();
-    }
-  }
-
-  Future<void> _initializeLocation() async {
-    try {
-      setState(() {
-        _isLoadingLocation = true;
-      });
-      
-      await _checkLocationPermission();
-      
-      if (_isLocationPermissionGranted) {
-        await _getCurrentLocation();
-      }
-    } catch (e) {
-      debugPrint('Error initializing location: $e');
-    } finally {
-      setState(() {
-        _isLoadingLocation = false;
-      });
-    }
-  }
-
-  Future<void> _checkLocationPermission() async {
+  Future<void> _requestLocationPermission() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
@@ -202,7 +329,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           _isLocationPermissionGranted = false;
         });
-        _showLocationPermissionDialog();
         return;
       }
 
@@ -210,129 +336,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isLocationPermissionGranted = permission == LocationPermission.whileInUse || 
                                      permission == LocationPermission.always;
       });
-
-      if (!_isLocationPermissionGranted) {
-        _showLocationPermissionDialog();
-      }
     } catch (e) {
-      debugPrint('Error checking location permission: $e');
+      debugPrint('Error requesting location permission: $e');
       setState(() {
         _isLocationPermissionGranted = false;
       });
     }
   }
 
-  Future<void> _getCurrentLocation() async {
-    if (!_isLocationPermissionGranted) return;
-    
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw Exception('Location timeout');
-        },
-      );
-      
-      setState(() {
-        _currentPosition = position;
-      });
-      
-      if (_isMapReady) {
-        _updateMapLocation();
-        _createMarkersFromParkingLots();
-      }
-    } catch (e) {
-      debugPrint('Error getting location: $e');
-      // Use default HCMC location if can't get current location
-      if (_isMapReady) {
-        _createMarkersFromParkingLots();
-      }
-    }
-  }
-
-  void _updateMapLocation() {
-    if (_mapController != null && _currentPosition != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLng(
-          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-        ),
-      );
-    }
-  }
-
-  void _showLocationPermissionDialog() {
-    if (!mounted) return;
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Quyền truy cập vị trí'),
-        content: const Text(
-          'Ứng dụng cần quyền truy cập vị trí để hiển thị các bãi đậu xe gần bạn. Vui lòng cấp quyền trong cài đặt.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Geolocator.openAppSettings();
-            },
-            child: const Text('Cài đặt'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _createMarkersFromParkingLots() async {
-    if (!mounted) return;
-    
-    final Set<Marker> markers = {};
-    
-    try {
-      // Add current location marker if available
-      if (_currentPosition != null) {
-        markers.add(
-          Marker(
-            markerId: const MarkerId('current_location'),
-            position: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-            infoWindow: const InfoWindow(title: 'Vị trí của bạn'),
-          ),
-        );
-      }
-
-      // Add parking lot markers
-      for (final parking in _nearbyParking) {
-        markers.add(
-          Marker(
-            markerId: MarkerId(parking.id.toString()),
-            position: LatLng(parking.latitude, parking.longitude),
-            icon: parking.hasAvailableSlots
-                ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)
-                : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-            infoWindow: InfoWindow(
-              title: parking.name,
-              snippet: '${parking.availableSlots}/${parking.totalSlots} slots - ${parking.priceText}',
-            ),
-            onTap: () => _selectParking(parking),
-          ),
-        );
-      }
-
-      setState(() {
-        _markers = markers;
-      });
-    } catch (e) {
-      debugPrint('Error creating markers: $e');
-    }
-  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -358,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Expanded(
             child: Stack(
               children: [
-                // Loading indicator
+                // Loading indicator for map readiness only
                 if (_isLoadingLocation)
                   const Center(
                     child: Column(
@@ -367,6 +379,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         CircularProgressIndicator(),
                         SizedBox(height: 16),
                         Text('Đang tải bản đồ...'),
+                      ],
+                    ),
+                  )
+                // Error indicator
+                else if (_error != null)
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: AppColors.error,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Lỗi tải dữ liệu',
+                          style: AppThemes.headingMedium.copyWith(
+                            color: AppColors.error,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _error!,
+                          style: AppThemes.bodyMedium.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: () {
+                            if (_currentPosition != null) {
+                              _loadNearbyParkingLots();
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: AppColors.white,
+                          ),
+                          child: const Text('Thử lại'),
+                        ),
                       ],
                     ),
                   )
@@ -389,7 +443,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         _isMapReady = true;
                       });
                       
-                      await _createMarkersFromParkingLots();
+                      // Load parking lots if we have location, otherwise use mock data
+                      if (_currentPosition != null) {
+                        await _loadNearbyParkingLots();
+                      } else {
+                        _nearbyParking = _mockNearbyParking;
+                        await _createMarkersFromParkingLots();
+                      }
                     },
                     markers: _markers,
                     myLocationEnabled: _isLocationPermissionGranted,
@@ -463,6 +523,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     left: 0,
                     right: 0,
                     child: _buildAIAnalysisButton(),
+                  ),
+
+                // Small loading overlay while fetching parking lots
+                if (!_isLoadingLocation && _isLoadingParkingLots)
+                  Positioned(
+                    top: 20,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        CircularProgressIndicator(strokeWidth: 2),
+                        SizedBox(width: 8),
+                        Text('Đang tải bãi đậu xe...'),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -539,10 +615,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: CircleAvatar(
                 radius: 20,
                 backgroundColor: AppColors.white.withOpacity(0.2),
-                backgroundImage: user?.avatarUrl != null
-                    ? NetworkImage(user!.avatarUrl!)
+                backgroundImage: (user?.avatarUrl != null && (user!.avatarUrl!.trim().isNotEmpty) && (user.avatarUrl!.startsWith('http')))
+                    ? NetworkImage(user.avatarUrl!)
                     : null,
-                child: user?.avatarUrl == null
+                child: (user?.avatarUrl == null || user!.avatarUrl!.trim().isEmpty)
                     ? Text(
                         user?.fullName.substring(0, 1).toUpperCase() ?? 'U',
                         style: const TextStyle(
@@ -564,7 +640,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selectedParking = _selectedParking?.id == parking.id ? null : parking;
     });
 
-    // Animate to selected parking location
     if (_selectedParking != null && _mapController != null) {
       _mapController!.animateCamera(
         CameraUpdate.newLatLngZoom(

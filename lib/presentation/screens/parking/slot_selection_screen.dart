@@ -4,6 +4,7 @@ import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../../core/services/parking_slot_service.dart';
 
 class SlotSelectionScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -16,20 +17,28 @@ class SlotSelectionScreen extends StatefulWidget {
 
 class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   ParkingSlot? selectedSlot;
-  
-  // Mock data for slots
-  final List<ParkingSlot> slots = [
-    ParkingSlot(id: 'A01', lotId: 1, slotNumber: 'A01', status: SlotStatus.available, type: 'standard'),
-    ParkingSlot(id: 'A02', lotId: 1, slotNumber: 'A02', status: SlotStatus.occupied, type: 'standard'),
-    ParkingSlot(id: 'A03', lotId: 1, slotNumber: 'A03', status: SlotStatus.available, type: 'standard'),
-    ParkingSlot(id: 'A04', lotId: 1, slotNumber: 'A04', status: SlotStatus.reserved, type: 'standard'),
-    ParkingSlot(id: 'A05', lotId: 1, slotNumber: 'A05', status: SlotStatus.available, type: 'large'),
-    ParkingSlot(id: 'A06', lotId: 1, slotNumber: 'A06', status: SlotStatus.available, type: 'standard'),
-    ParkingSlot(id: 'B01', lotId: 1, slotNumber: 'B01', status: SlotStatus.occupied, type: 'standard'),
-    ParkingSlot(id: 'B02', lotId: 1, slotNumber: 'B02', status: SlotStatus.available, type: 'standard'),
-    ParkingSlot(id: 'B03', lotId: 1, slotNumber: 'B03', status: SlotStatus.maintenance, type: 'standard'),
-    ParkingSlot(id: 'B04', lotId: 1, slotNumber: 'B04', status: SlotStatus.available, type: 'standard'),
-  ];
+  final ParkingSlotService _slotService = ParkingSlotService();
+  List<ParkingSlot> slots = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSlots();
+  }
+
+  Future<void> _fetchSlots() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final list = await _slotService.searchSlots(lotId: widget.parkingLot.id, pageSize: 200);
+      setState(() { slots = list; });
+    } catch (e) {
+      setState(() { _error = 'Không tải được danh sách chỗ đậu'; });
+    } finally {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,13 +69,17 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  _buildSlotGrid(),
-                  const SizedBox(height: 20),
-                  if (selectedSlot != null) _buildSelectedSlotInfo(),
-                ],
-              ),
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(child: Text(_error!))
+                      : Column(
+                          children: [
+                            _buildSlotGrid(),
+                            const SizedBox(height: 20),
+                            if (selectedSlot != null) _buildSelectedSlotInfo(),
+                          ],
+                        ),
             ),
           ),
         ],

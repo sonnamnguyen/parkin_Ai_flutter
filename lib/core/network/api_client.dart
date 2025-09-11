@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../constants/app_constants.dart';
 import '../services/storage_service.dart';
 
@@ -10,8 +12,12 @@ class ApiClient {
   late final Dio _dio;
 
   void initialize() {
+    final String envUrl = dotenv.env['API_BASE_URL'] ?? '';
+    final String defaultUrl = kIsWeb ? AppConstants.webBaseUrl : AppConstants.baseUrl;
+    final String resolvedBaseUrl = envUrl.isNotEmpty ? envUrl : defaultUrl;
+
     _dio = Dio(BaseOptions(
-      baseUrl: AppConstants.baseUrl,
+      baseUrl: resolvedBaseUrl,
       connectTimeout: const Duration(milliseconds: AppConstants.connectionTimeout),
       receiveTimeout: const Duration(milliseconds: AppConstants.receiveTimeout),
       headers: {

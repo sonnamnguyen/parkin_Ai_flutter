@@ -56,3 +56,5 @@ coverage/
 # Hive database (if you want to ignore local db files)
 *.hive
 *.lock
+.env
+!.env.example

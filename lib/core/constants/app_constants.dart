@@ -3,7 +3,9 @@ class AppConstants {
   // For Android Emulator, use 10.0.2.2 instead of localhost
   // For iOS Simulator, use localhost
   // For physical devices, use your computer's IP address (e.g., 192.168.1.100)
-  static const String baseUrl = 'http://10.0.2.2:8000/backend/parkin/v1';
+  // For web, use localhost or your machine IP; 10.0.2.2 is Android-only.
+  static const String baseUrl = String.fromEnvironment('APP_BASE_URL', defaultValue: 'http://10.0.2.2:8000/backend/parkin/v1');
+  static const String webBaseUrl = String.fromEnvironment('APP_WEB_BASE_URL', defaultValue: 'http://localhost:8000/backend/parkin/v1');
   static const int connectionTimeout = 30000;
   static const int receiveTimeout = 30000;
   

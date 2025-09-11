@@ -24,6 +24,7 @@ class ApiEndpoints {
   static const String parkingLots = '/parking-lots';
   static String parkingLotDetail(int id) => '/parking-lots/$id';
   static String parkingSlots(int lotId) => '/parking-lots/$lotId/slots';
+  static const String searchParkingSlots = '/parking-slots';
   static const String nearbyParkingLots = '/parking/nearby';
   static const String searchParkingLots = '/parking/search';
   
@@ -46,7 +47,11 @@ class ApiEndpoints {
   
   // Notification endpoints
   static const String notifications = '/notifications';
-  static String markAsRead(int id) => '/notifications/$id/read';
+  static String notificationDetail(int id) => '/notifications/$id';
+  static const String notificationsMarkRead = '/notifications/mark-read';
+
+  // Optional: Parking Orders (if used for notification-like list)
+  static const String parkingOrders = '/parking-orders';
   
   // Review endpoints
   static String addReview(int lotId) => '/parking/lots/$lotId/reviews';

@@ -20,6 +20,7 @@ import '../data/models/vehicle_model.dart';
 import '../presentation/screens/parking/rating_comments_screen.dart';
 import '../presentation/screens/parking/order_history_screen.dart';
 import '../presentation/screens/parking/order_view_screen.dart';
+import '../presentation/screens/favorites/favorites_screen.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -84,6 +85,11 @@ class RouteGenerator {
       case AppRoutes.notifications:
         return MaterialPageRoute(
           builder: (_) => const notifications.NotificationsScreen(),
+        );
+
+      case AppRoutes.favorites:
+        return MaterialPageRoute(
+          builder: (_) => const FavoritesScreen(),
         );
 
       case AppRoutes.parkingDetail:

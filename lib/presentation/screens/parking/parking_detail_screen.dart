@@ -211,17 +211,34 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
                   
                   const Spacer(),
                   
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.white.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.favorite_border,
-                      color: AppColors.darkGrey,
-                      size: 20,
+                  GestureDetector(
+                    onTap: () async {
+                      try {
+                        await FavoriteService().addFavorite(lotId: parkingLot.id);
+                        // feedback
+                        // ignore: use_build_context_synchronously
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Đã thêm vào yêu thích')),
+                        );
+                      } catch (e) {
+                        // ignore: use_build_context_synchronously
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Thêm yêu thích thất bại: $e')),
+                        );
+                      }
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.white.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.favorite_border,
+                        color: AppColors.darkGrey,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ],

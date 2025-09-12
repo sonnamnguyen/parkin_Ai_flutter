@@ -58,9 +58,8 @@ class ApiEndpoints {
   static const String parkingLotReviews = '/parking-lot-reviews';
   static String parkingLotReviewDetail(int id) => '/parking-lot-reviews/$id';
   
-  // Favorites endpoints
-  static const String favorites = '/user/favorites';
-  static String addToFavorites(int lotId) => '/user/favorites/$lotId';
-  static String removeFromFavorites(int lotId) => '/user/favorites/$lotId';
+  // Favorites endpoints (backend: /favorites)
+  static const String favorites = '/favorites';
+  static String favoriteDetail(int id) => '/favorites/$id';
 }
 

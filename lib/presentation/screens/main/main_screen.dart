@@ -135,6 +135,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                         AppStrings.notifications,
                         2,
                       ),
+                      ListTile(
+                        leading: const Icon(Icons.favorite_border),
+                        title: const Text('Yêu thích'),
+                        onTap: () {
+                          Navigator.of(context).pushNamed('/favorites');
+                        },
+                      ),
                       _buildNavigationItem(
                         Icons.account_balance_wallet_outlined,
                         Icons.account_balance_wallet,

@@ -183,10 +183,59 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
   }
 
   Future<void> _editReview(ParkingReview review) async {
-    // TODO: Implement edit review functionality
-    // You can create a dialog or navigate to an edit screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Chức năng chỉnh sửa đang được phát triển')),
+    final TextEditingController editController = TextEditingController(text: review.comment);
+    int editRating = review.rating;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Chỉnh sửa đánh giá'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: List.generate(5, (i) => IconButton(
+                splashRadius: 18,
+                padding: EdgeInsets.zero,
+                onPressed: () { editRating = i + 1; setState(() {}); },
+                icon: Icon(i < editRating ? Icons.star : Icons.star_border, color: AppColors.warning),
+              )),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: editController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Cập nhật bình luận'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await _reviewService.updateReview(UpdateReviewRequest(
+                  id: review.id,
+                  lotId: review.lotId,
+                  rating: editRating,
+                  comment: editController.text.trim(),
+                ));
+                _loadReviews(refresh: true);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Đã cập nhật đánh giá')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Lỗi khi cập nhật: $e')),
+                );
+              }
+            },
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -521,19 +570,15 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
                   color: AppColors.textSecondary,
                 ),
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'report',
-                    child: Row(
-                      children: [
-                        Icon(Icons.report_outlined, size: 18),
-                        SizedBox(width: 8),
-                        Text('Báo cáo'),
-                      ],
-                    ),
-                  ),
+                  const PopupMenuItem(value: 'edit', child: Text('Chỉnh sửa')),
+                  const PopupMenuItem(value: 'delete', child: Text('Xóa')),
                 ],
                 onSelected: (value) {
-                  // Handle menu actions
+                  if (value == 'edit') {
+                    _editReview(review);
+                  } else if (value == 'delete') {
+                    _deleteReview(review.id);
+                  }
                 },
               ),
             ],

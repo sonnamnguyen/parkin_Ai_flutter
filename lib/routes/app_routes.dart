@@ -48,6 +48,7 @@ class AppRoutes {
 
   // Other routes
   static const String notifications = '/notifications';
+  static const String favorites = '/favorites';
   static const String settings = '/settings';
   static const String help = '/help';
 }

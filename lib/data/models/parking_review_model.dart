@@ -20,15 +20,22 @@ class ParkingReview {
   });
 
   factory ParkingReview.fromJson(Map<String, dynamic> json) {
+    int _parseInt(dynamic v) {
+      if (v == null) return 0;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
     return ParkingReview(
-      id: json['id'] as int,
-      lotId: json['lot_id'] as int,
-      userId: json['user_id'] as int,
-      username: json['username'] as String,
-      rating: json['rating'] as int,
-      comment: json['comment'] as String,
-      createdAt: json['created_at'] as String?,
-      updatedAt: json['updated_at'] as String?,
+      id: _parseInt(json['id']),
+      lotId: _parseInt(json['lot_id']),
+      userId: _parseInt(json['user_id']),
+      username: json['username']?.toString() ?? '',
+      rating: _parseInt(json['rating']),
+      comment: json['comment']?.toString() ?? '',
+      createdAt: json['created_at']?.toString(),
+      updatedAt: json['updated_at']?.toString(),
     );
   }
 
@@ -103,13 +110,21 @@ class ReviewListResponse {
   });
 
   factory ReviewListResponse.fromJson(Map<String, dynamic> json) {
+    final list = (json['list'] as List? ?? [])
+        .map((e) => ParkingReview.fromJson((e as Map).cast<String, dynamic>()))
+        .toList();
+    int _parseInt(dynamic v) {
+      if (v == null) return 0;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
     return ReviewListResponse(
-      reviews: (json['list'] as List)
-          .map((e) => ParkingReview.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      total: json['total'] as int,
-      page: json['page'] as int,
-      pageSize: json['page_size'] as int,
+      reviews: list,
+      total: _parseInt(json['total']),
+      page: _parseInt(json['page']),
+      pageSize: _parseInt(json['page_size']),
     );
   }
 }

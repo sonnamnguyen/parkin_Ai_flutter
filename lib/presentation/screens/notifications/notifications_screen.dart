@@ -228,13 +228,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('type: ${detail.type.name}'),
+              Text('Loại: ${detail.type.name}'),
               const SizedBox(height: 8),
-              Text('content:'),
               const SizedBox(height: 4),
               Text(detail.message),
               const SizedBox(height: 8),
-              Text('created_at: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(detail.createdAt)}'),
+              Text('Ngày: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(detail.createdAt)}'),
             ],
           ),
           actions: [

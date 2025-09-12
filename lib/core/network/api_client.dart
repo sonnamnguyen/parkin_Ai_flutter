@@ -85,6 +85,23 @@ class ApiClient {
     );
   }
 
+  // GET request with body (for APIs that require GET with JSON body)
+  Future<Response<T>> getWithBody<T>(
+    String path, {
+    dynamic data,
+    Options? options,
+  }) async {
+    return await _dio.request<T>(
+      path,
+      data: data,
+      options: Options(
+        method: 'GET',
+        headers: options?.headers,
+        contentType: options?.contentType ?? 'application/json',
+      ),
+    );
+  }
+
   // POST request
   Future<Response<T>> post<T>(
     String path, {

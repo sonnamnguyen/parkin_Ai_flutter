@@ -42,6 +42,10 @@ class AppRoutes {
   // Reviews and ratings
   static const String ratingComments = '/rating-comments';
 
+  // Order routes
+  static const String orderHistory = '/order-history';
+  static const String orderView = '/order-view';
+
   // Other routes
   static const String notifications = '/notifications';
   static const String settings = '/settings';

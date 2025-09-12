@@ -7,7 +7,7 @@ class ParkingSlotService {
   final ApiClient _api = ApiClient();
 
   Future<List<ParkingSlot>> searchSlots({
-    int? lotId,
+    required int lotId,
     String? code,
     bool? isAvailable,
     String? slotType,
@@ -15,28 +15,52 @@ class ParkingSlotService {
     int page = 1,
     int pageSize = 50,
   }) async {
+    print('=== SEARCH SLOTS METHOD CALLED ===');
+    print('lotId: $lotId');
+    print('code: $code');
+    print('slotType: $slotType');
+    print('floor: $floor');
     final payload = <String, dynamic>{
-      if (lotId != null) 'lot_id': lotId,
-      if (code != null && code.isNotEmpty) 'code': code,
+      'lot_id': lotId, // Required parameter
+      'code': code ?? '', // API requires code parameter (can be empty)
       if (isAvailable != null) 'is_available': isAvailable,
       if (slotType != null && slotType.isNotEmpty) 'slot_type': slotType,
       if (floor != null && floor.isNotEmpty) 'floor': floor,
       'page': page,
       'page_size': pageSize,
     };
-    final Response response = await _api.post(ApiEndpoints.searchParkingSlots, data: payload);
-    if (response.statusCode == 200) {
-      final data = response.data;
-      final List raw = (data is Map && data['list'] is List)
-          ? data['list'] as List
-          : (data is List ? data : const []);
-      return raw.map((e) => _mapBackendSlot(e as Map<String, dynamic>)).toList();
+    try {
+      print('=== PARKING SLOT SERVICE ===');
+      print('Request URL: ${ApiEndpoints.searchParkingSlots}');
+      print('Request payload: $payload');
+      print('Payload type: ${payload.runtimeType}');
+      
+      final Response response = await _api.getWithBody(ApiEndpoints.searchParkingSlots, data: payload);
+      
+      print('Parking slots response status: ${response.statusCode}');
+      print('Parking slots response data: ${response.data}');
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        final List raw = (data is Map && data['list'] is List)
+            ? data['list'] as List
+            : (data is List ? data : const []);
+        return raw.map((e) => _mapBackendSlot(e as Map<String, dynamic>)).toList();
+      } else {
+        throw DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          message: 'Failed to fetch slots: ${response.statusCode}',
+        );
+      }
+    } on DioException catch (e) {
+      print('DioException in searchSlots: $e');
+      print('Response data: ${e.response?.data}');
+      rethrow;
+    } catch (e) {
+      print('General error in searchSlots: $e');
+      rethrow;
     }
-    throw DioException(
-      requestOptions: response.requestOptions,
-      response: response,
-      message: 'Failed to fetch slots',
-    );
   }
 
   ParkingSlot _mapBackendSlot(Map<String, dynamic> json) {

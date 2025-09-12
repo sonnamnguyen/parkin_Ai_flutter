@@ -3,6 +3,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
+import '../../../data/models/parking_order_model.dart';
+import '../../../core/services/parking_order_service.dart';
 import '../../widgets/common/custom_button.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -20,10 +22,12 @@ class OrderDetailScreen extends StatefulWidget {
 }
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
+  final ParkingOrderService _orderService = ParkingOrderService();
   DateTime selectedDate = DateTime.now();
   TimeOfDay startTime = TimeOfDay.now();
   TimeOfDay endTime = TimeOfDay(hour: TimeOfDay.now().hour + 2, minute: 0);
   bool isScheduled = false;
+  bool _creating = false;
 
   @override
   Widget build(BuildContext context) {
@@ -484,8 +488,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       ),
       child: SafeArea(
         child: CustomButton(
-          text: 'Xác nhận & Thanh toán',
-          onPressed: () => _navigateToPayment(),
+          text: _creating ? 'Đang tạo đơn...' : 'Xác nhận & Thanh toán',
+          onPressed: _creating ? null : () => _navigateToPayment(),
           width: double.infinity,
         ),
       ),
@@ -513,13 +517,72 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     Navigator.of(context).pushNamed('/schedule');
   }
 
-  void _navigateToPayment() {
-    Navigator.of(context).pushNamed('/payment', arguments: {
-      'parkingLot': widget.parkingLot,
-      'selectedSlot': widget.selectedSlot,
-      'startTime': startTime,
-      'endTime': endTime,
-      'isScheduled': isScheduled,
-    });
+  Future<void> _navigateToPayment() async {
+    if (_creating) return;
+    
+    setState(() { _creating = true; });
+    
+    try {
+      print('=== CREATING PARKING ORDER ===');
+      
+      // Create start and end DateTime
+      final DateTime startDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        startTime.hour,
+        startTime.minute,
+      );
+      
+      final DateTime endDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        endTime.hour,
+        endTime.minute,
+      );
+      
+      // Format dates for API
+      final String startTimeStr = startDateTime.toIso8601String().replaceAll('T', ' ').substring(0, 19);
+      final String endTimeStr = endDateTime.toIso8601String().replaceAll('T', ' ').substring(0, 19);
+      
+      print('Start time: $startTimeStr');
+      print('End time: $endTimeStr');
+      
+      // Create order request
+      final request = CreateOrderRequest(
+        vehicleId: 1, // TODO: Get from user's selected vehicle
+        lotId: widget.parkingLot.id,
+        slotId: int.parse(widget.selectedSlot.id),
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+      );
+      
+      // Create the order
+      final order = await _orderService.createOrder(request);
+      
+      print('=== ORDER CREATED ===');
+      print('Order ID: ${order.id}');
+      
+      // Navigate to payment with order details
+      Navigator.of(context).pushNamed('/payment', arguments: {
+        'order': order,
+        'parkingLot': widget.parkingLot,
+        'selectedSlot': widget.selectedSlot,
+      });
+      
+    } catch (e) {
+      print('=== ERROR CREATING ORDER ===');
+      print('Error: $e');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi tạo đơn đặt chỗ: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() { _creating = false; });
+    }
   }
 }

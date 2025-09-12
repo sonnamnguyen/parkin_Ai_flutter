@@ -3,7 +3,11 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
+import '../../../data/models/parking_order_model.dart';
+import '../../../core/services/parking_order_service.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../../core/services/vehicle_service.dart';
+import '../../../data/models/vehicle_model.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -20,10 +24,39 @@ class OrderDetailScreen extends StatefulWidget {
 }
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
+  final ParkingOrderService _orderService = ParkingOrderService();
+  final VehicleService _vehicleService = VehicleService();
   DateTime selectedDate = DateTime.now();
   TimeOfDay startTime = TimeOfDay.now();
   TimeOfDay endTime = TimeOfDay(hour: TimeOfDay.now().hour + 2, minute: 0);
-  bool isScheduled = false;
+  // Removed scheduling feature per request
+  bool _creating = false;
+  List<Vehicle> _vehicles = [];
+  Vehicle? _selectedVehicle;
+  bool _loadingVehicles = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVehicles();
+  }
+
+  Future<void> _loadVehicles() async {
+    setState(() { _loadingVehicles = true; });
+    try {
+      final resp = await _vehicleService.getVehicles(pageSize: 50);
+      setState(() {
+        _vehicles = resp.list;
+        if (_vehicles.isNotEmpty) {
+          _selectedVehicle = _vehicles.first;
+        }
+      });
+    } catch (e) {
+      // show silent error
+    } finally {
+      if (mounted) setState(() { _loadingVehicles = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,37 +189,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                'Thời gian',
-                style: AppThemes.headingSmall.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
-              Switch(
-                value: isScheduled,
-                onChanged: (value) {
-                  setState(() {
-                    isScheduled = value;
-                  });
-                },
-                activeColor: AppColors.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Đặt lịch',
-                style: AppThemes.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
+          Text(
+            'Thời gian',
+            style: AppThemes.headingSmall.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           
           const SizedBox(height: 16),
           
-          if (isScheduled) _buildScheduleSelector() else _buildQuickTimeSelector(),
+          _buildQuickTimeSelector(),
+          const SizedBox(height: 16),
+          _buildDatePicker(),
         ],
       ),
     );
@@ -220,45 +234,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  Widget _buildScheduleSelector() {
+  // Removed schedule selector
+
+  Widget _buildDatePicker() {
     return GestureDetector(
-      onTap: () => _navigateToSchedule(),
+      onTap: _selectDate,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: AppColors.lightGrey,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.primary.withOpacity(0.3)),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.calendar_today,
-              color: AppColors.primary,
-              size: 20,
-            ),
+            Icon(Icons.event, color: AppColors.primary, size: 20),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Lịch đặt chỗ',
-                  style: AppThemes.bodyMedium.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  'Chọn ngày và giờ cụ thể',
-                  style: AppThemes.bodySmall,
-                ),
-              ],
+            Text(
+              '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+              style: AppThemes.bodyLarge.copyWith(fontWeight: FontWeight.w600),
             ),
             const Spacer(),
-            const Icon(
-              Icons.arrow_forward_ios,
-              color: AppColors.textSecondary,
-              size: 16,
-            ),
+            const Icon(Icons.keyboard_arrow_down, color: AppColors.textSecondary),
           ],
         ),
       ),
@@ -344,52 +340,26 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.lightGrey,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
+          _loadingVehicles
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<Vehicle>(
+                  value: _selectedVehicle,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: AppColors.lightGrey,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                   ),
-                  child: const Icon(
-                    Icons.directions_car,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
+                  hint: const Text('Chọn xe của bạn'),
+                  items: _vehicles.map((v) => DropdownMenuItem<Vehicle>(
+                    value: v,
+                    child: Text('${v.displayName} • ${v.licensePlate}'),
+                  )).toList(),
+                  onChanged: (v) => setState(() { _selectedVehicle = v; }),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '2021 Audi Q3 • B 1234 CD',
-                        style: AppThemes.bodyLarge.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        'Capital University • Slot A01',
-                        style: AppThemes.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(
-                  Icons.keyboard_arrow_down,
-                  color: AppColors.textSecondary,
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -484,8 +454,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       ),
       child: SafeArea(
         child: CustomButton(
-          text: 'Xác nhận & Thanh toán',
-          onPressed: () => _navigateToPayment(),
+          text: _creating ? 'Đang tạo đơn...' : 'Xác nhận & Thanh toán',
+          onPressed: _creating ? null : () => _navigateToPayment(),
           width: double.infinity,
         ),
       ),
@@ -509,17 +479,95 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
-  void _navigateToSchedule() {
-    Navigator.of(context).pushNamed('/schedule');
+  Future<void> _selectDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime first = DateTime(now.year, now.month, now.day);
+    final DateTime last = now.add(const Duration(days: 30));
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: first,
+      lastDate: last,
+    );
+    if (picked != null) {
+      setState(() { selectedDate = picked; });
+    }
   }
 
-  void _navigateToPayment() {
-    Navigator.of(context).pushNamed('/payment', arguments: {
-      'parkingLot': widget.parkingLot,
-      'selectedSlot': widget.selectedSlot,
-      'startTime': startTime,
-      'endTime': endTime,
-      'isScheduled': isScheduled,
-    });
+  // Removed navigate to schedule
+
+  Future<void> _navigateToPayment() async {
+    if (_creating) return;
+    if (_selectedVehicle == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng chọn xe trước khi đặt chỗ')),
+      );
+      return;
+    }
+    
+    setState(() { _creating = true; });
+    
+    try {
+      print('=== CREATING PARKING ORDER ===');
+      
+      // Create start and end DateTime
+      final DateTime startDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        startTime.hour,
+        startTime.minute,
+      );
+      
+      final DateTime endDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        endTime.hour,
+        endTime.minute,
+      );
+      
+      // Format dates for API
+      final String startTimeStr = startDateTime.toIso8601String().replaceAll('T', ' ').substring(0, 19);
+      final String endTimeStr = endDateTime.toIso8601String().replaceAll('T', ' ').substring(0, 19);
+      
+      print('Start time: $startTimeStr');
+      print('End time: $endTimeStr');
+      
+      // Create order request
+      final request = CreateOrderRequest(
+        vehicleId: _selectedVehicle!.id,
+        lotId: widget.parkingLot.id,
+        slotId: int.parse(widget.selectedSlot.id),
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+      );
+      
+      // Create the order
+      final order = await _orderService.createOrder(request);
+      
+      print('=== ORDER CREATED ===');
+      print('Order ID: ${order.id}');
+      
+      // Navigate to payment with order details
+      Navigator.of(context).pushNamed('/payment', arguments: {
+        'order': order,
+        'parkingLot': widget.parkingLot,
+        'selectedSlot': widget.selectedSlot,
+      });
+      
+    } catch (e) {
+      print('=== ERROR CREATING ORDER ===');
+      print('Error: $e');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi tạo đơn đặt chỗ: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() { _creating = false; });
+    }
   }
 }

@@ -34,6 +34,10 @@ class ApiEndpoints {
   static String bookingDetail(int id) => '/bookings/$id';
   static String cancelBooking(int id) => '/bookings/$id/cancel';
   
+  // Parking Order endpoints
+  static const String parkingOrders = '/parking-orders';
+  static String parkingOrderDetail(int id) => '/parking-orders/$id';
+  
   // Wallet endpoints
   static const String walletBalance = '/wallet/balance';
   static const String walletTransactions = '/wallet/transactions';
@@ -49,13 +53,10 @@ class ApiEndpoints {
   static const String notifications = '/notifications';
   static String notificationDetail(int id) => '/notifications/$id';
   static const String notificationsMarkRead = '/notifications/mark-read';
-
-  // Optional: Parking Orders (if used for notification-like list)
-  static const String parkingOrders = '/parking-orders';
   
   // Review endpoints
-  static String addReview(int lotId) => '/parking/lots/$lotId/reviews';
-  static String lotReviews(int lotId) => '/parking/lots/$lotId/reviews';
+  static const String parkingLotReviews = '/parking-lot-reviews';
+  static String parkingLotReviewDetail(int id) => '/parking-lot-reviews/$id';
   
   // Favorites endpoints
   static const String favorites = '/user/favorites';

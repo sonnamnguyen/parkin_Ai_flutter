@@ -18,6 +18,8 @@ import '../data/models/parking_lot_model.dart';
 import '../data/models/parking_slot_model.dart';
 import '../data/models/vehicle_model.dart';
 import '../presentation/screens/parking/rating_comments_screen.dart';
+import '../presentation/screens/parking/order_history_screen.dart';
+import '../presentation/screens/parking/order_view_screen.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -127,6 +129,19 @@ class RouteGenerator {
         if (args is ParkingLot) {
           return MaterialPageRoute(
             builder: (_) => RatingCommentsScreen(parkingLot: args),
+          );
+        }
+        return _errorRoute();
+
+      case AppRoutes.orderHistory:
+        return MaterialPageRoute(
+          builder: (_) => const OrderHistoryScreen(),
+        );
+
+      case AppRoutes.orderView:
+        if (args is Map<String, dynamic> && args['orderId'] is int) {
+          return MaterialPageRoute(
+            builder: (_) => OrderViewScreen(orderId: args['orderId']),
           );
         }
         return _errorRoute();

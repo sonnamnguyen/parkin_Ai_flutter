@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
-import '../../../data/models/review_model.dart';
+import '../../../data/models/parking_review_model.dart';
+import '../../../core/services/parking_review_service.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
 
@@ -19,61 +20,23 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TextEditingController _commentController = TextEditingController();
+  final ParkingReviewService _reviewService = ParkingReviewService();
   int _userRating = 0;
   bool _isSubmittingReview = false;
+  bool _loading = false;
+  String? _error;
 
-  // Mock reviews data based on your images
-  final List<Review> _reviews = [
-    Review(
-      id: 1,
-      userId: 1,
-      userName: 'Phan Phúc Nguyên',
-      avatarUrl: '',
-      rating: 5,
-      comment: 'Nhân viên nhiệt tình',
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      userInitial: 'N',
-      userColor: Colors.green,
-    ),
-    Review(
-      id: 2,
-      userId: 2,
-      userName: 'Phạm Đăng Khôi',
-      avatarUrl: '',
-      rating: 4,
-      comment: 'Giá rẻ',
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-      userInitial: 'K',
-      userColor: Colors.blue,
-    ),
-    Review(
-      id: 3,
-      userId: 3,
-      userName: 'Nguyễn Hoàn Đức Min',
-      avatarUrl: '',
-      rating: 5,
-      comment: 'Sạch sẽ rộng rãi',
-      createdAt: DateTime.now().subtract(const Duration(days: 7)),
-      userInitial: 'M',
-      userColor: Colors.red,
-    ),
-    Review(
-      id: 4,
-      userId: 4,
-      userName: 'Đỗ Trí Hiếu',
-      avatarUrl: '',
-      rating: 4,
-      comment: 'Bãi xe rộng, tiện lợi cho việc đậu xe. Nhân viên thân thiện',
-      createdAt: DateTime.now().subtract(const Duration(days: 10)),
-      userInitial: 'H',
-      userColor: Colors.teal,
-    ),
-  ];
+  // Reviews data from API
+  List<ParkingReview> _reviews = [];
+  int _currentPage = 1;
+  final int _pageSize = 10;
+  bool _hasMore = true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadReviews();
   }
 
   @override
@@ -81,6 +44,150 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
     _tabController.dispose();
     _commentController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadReviews({bool refresh = false}) async {
+    if (refresh) {
+      setState(() {
+        _currentPage = 1;
+        _reviews.clear();
+        _hasMore = true;
+      });
+    }
+    
+    setState(() { _loading = true; _error = null; });
+    
+    try {
+      print('=== LOADING REVIEWS ===');
+      print('Lot ID: ${widget.parkingLot.id}');
+      print('Page: $_currentPage');
+      
+      final response = await _reviewService.getReviews(
+        lotId: widget.parkingLot.id,
+        page: _currentPage,
+        pageSize: _pageSize,
+      );
+      
+      print('=== REVIEWS LOADED ===');
+      print('Number of reviews: ${response.reviews.length}');
+      print('Total: ${response.total}');
+      
+      setState(() {
+        if (refresh) {
+          _reviews = response.reviews;
+        } else {
+          _reviews.addAll(response.reviews);
+        }
+        _hasMore = _reviews.length < response.total;
+        _currentPage++;
+      });
+    } catch (e) {
+      print('=== ERROR LOADING REVIEWS ===');
+      print('Error: $e');
+      setState(() { _error = 'Không tải được đánh giá: $e'; });
+    } finally {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
+
+  Future<void> _submitReview() async {
+    if (_userRating == 0 || _commentController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng chọn đánh giá và nhập bình luận'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    setState(() { _isSubmittingReview = true; });
+
+    try {
+      print('=== SUBMITTING REVIEW ===');
+      
+      final request = CreateReviewRequest(
+        lotId: widget.parkingLot.id,
+        rating: _userRating,
+        comment: _commentController.text.trim(),
+      );
+      
+      final review = await _reviewService.createReview(request);
+      
+      print('=== REVIEW SUBMITTED ===');
+      print('Review ID: ${review.id}');
+      
+      // Clear form
+      _commentController.clear();
+      _userRating = 0;
+      
+      // Reload reviews
+      _loadReviews(refresh: true);
+      
+      // Switch to reviews tab
+      _tabController.animateTo(1);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đánh giá đã được gửi thành công'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      
+    } catch (e) {
+      print('=== ERROR SUBMITTING REVIEW ===');
+      print('Error: $e');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi gửi đánh giá: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() { _isSubmittingReview = false; });
+    }
+  }
+
+  Future<void> _deleteReview(int reviewId) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xác nhận xóa'),
+        content: const Text('Bạn có chắc chắn muốn xóa đánh giá này?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Không'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                await _reviewService.deleteReview(reviewId);
+                _loadReviews(refresh: true);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Đã xóa đánh giá')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Lỗi khi xóa đánh giá: $e')),
+                );
+              }
+            },
+            child: const Text('Có'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editReview(ParkingReview review) async {
+    // TODO: Implement edit review functionality
+    // You can create a dialog or navigate to an edit screen
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Chức năng chỉnh sửa đang được phát triển')),
+    );
   }
 
   @override
@@ -295,17 +402,64 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
   }
 
   Widget _buildReviewsList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _reviews.length,
-      itemBuilder: (context, index) {
-        final review = _reviews[index];
-        return _buildReviewCard(review);
-      },
+    if (_loading && _reviews.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_error != null && _reviews.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => _loadReviews(refresh: true),
+              child: const Text('Thử lại'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (_reviews.isEmpty) {
+      return const Center(
+        child: Text('Chưa có đánh giá nào'),
+      );
+    }
+    
+    return RefreshIndicator(
+      onRefresh: () => _loadReviews(refresh: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _reviews.length + (_hasMore ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == _reviews.length) {
+            return _buildLoadMoreButton();
+          }
+          final review = _reviews[index];
+          return _buildReviewCard(review);
+        },
+      ),
     );
   }
 
-  Widget _buildReviewCard(Review review) {
+  Widget _buildLoadMoreButton() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _hasMore
+              ? CustomButton(
+                  text: 'Tải thêm',
+                  onPressed: () => _loadReviews(),
+                  width: double.infinity,
+                )
+              : const SizedBox(),
+    );
+  }
+
+  Widget _buildReviewCard(ParkingReview review) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
@@ -328,19 +482,14 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
               // User Avatar
               CircleAvatar(
                 radius: 20,
-                backgroundColor: review.userColor.withOpacity(0.2),
-                backgroundImage: (review.avatarUrl.isNotEmpty && review.avatarUrl.startsWith('http'))
-                    ? NetworkImage(review.avatarUrl)
-                    : null,
-                child: (review.avatarUrl.isEmpty || !review.avatarUrl.startsWith('http'))
-                    ? Text(
-                        review.userInitial,
-                        style: AppThemes.bodyMedium.copyWith(
-                          color: review.userColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : null,
+                backgroundColor: _getUserColor(review.userId).withOpacity(0.2),
+                child: Text(
+                  review.username.isNotEmpty ? review.username[0].toUpperCase() : 'U',
+                  style: AppThemes.bodyMedium.copyWith(
+                    color: _getUserColor(review.userId),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
 
               const SizedBox(width: 12),
@@ -351,7 +500,7 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      review.userName,
+                      review.username,
                       style: AppThemes.bodyMedium.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -552,77 +701,44 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
     }
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date).inDays;
+  String _formatDate(String? dateString) {
+    if (dateString == null) return 'Không xác định';
+    
+    try {
+      final date = DateTime.parse(dateString);
+      final now = DateTime.now();
+      final difference = now.difference(date).inDays;
 
-    if (difference == 0) {
-      return 'Hôm nay';
-    } else if (difference == 1) {
-      return 'Hôm qua';
-    } else if (difference < 7) {
-      return '$difference ngày trước';
-    } else if (difference < 30) {
-      final weeks = (difference / 7).floor();
-      return '$weeks tuần trước';
-    } else {
-      final months = (difference / 30).floor();
-      return '$months tháng trước';
+      if (difference == 0) {
+        return 'Hôm nay';
+      } else if (difference == 1) {
+        return 'Hôm qua';
+      } else if (difference < 7) {
+        return '$difference ngày trước';
+      } else if (difference < 30) {
+        final weeks = (difference / 7).floor();
+        return '$weeks tuần trước';
+      } else {
+        final months = (difference / 30).floor();
+        return '$months tháng trước';
+      }
+    } catch (e) {
+      return dateString;
     }
   }
 
-  void _submitReview() async {
-    if (_userRating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui lòng chọn số sao đánh giá'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSubmittingReview = true;
-    });
-
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 2));
-
-    if (mounted) {
-      setState(() {
-        _isSubmittingReview = false;
-      });
-
-      // Add new review to list (simulate successful submission)
-      final newReview = Review(
-        id: _reviews.length + 1,
-        userId: 999, // Current user ID
-        userName: 'Bạn',
-        avatarUrl: '',
-        rating: _userRating,
-        comment: _commentController.text.trim(),
-        createdAt: DateTime.now(),
-        userInitial: 'B',
-        userColor: AppColors.primary,
-      );
-
-      setState(() {
-        _reviews.insert(0, newReview);
-        _userRating = 0;
-        _commentController.clear();
-      });
-
-      // Switch to reviews tab
-      _tabController.animateTo(0);
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đánh giá đã được gửi thành công!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    }
+  Color _getUserColor(int userId) {
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.red,
+      Colors.teal,
+      Colors.indigo,
+      Colors.pink,
+    ];
+    return colors[userId % colors.length];
   }
+
 }

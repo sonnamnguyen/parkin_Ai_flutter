@@ -101,6 +101,18 @@ class NotificationService {
     );
   }
 
+  Future<bool> deleteNotification(int id) async {
+    final response = await _api.delete(ApiEndpoints.notificationDetail(id));
+    if (response.statusCode == 200 || response.statusCode == 204) {
+      return true;
+    }
+    throw DioException(
+      requestOptions: response.requestOptions,
+      response: response,
+      message: 'Failed to delete notification',
+    );
+  }
+
   List _extractList(dynamic data) {
     if (data is List) return data;
     if (data is Map) {

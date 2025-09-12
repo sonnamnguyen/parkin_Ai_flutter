@@ -58,6 +58,17 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
       print('Number of slots: ${list.length}');
       print('Slots: $list');
       
+      // Sort slots from first to last by slot number (natural ascending)
+      list.sort((a, b) {
+        int extractNum(String s) {
+          final match = RegExp(r'\d+').firstMatch(s);
+          return match != null ? int.parse(match.group(0)!) : 0;
+        }
+        final an = extractNum(a.slotNumber);
+        final bn = extractNum(b.slotNumber);
+        if (an != bn) return an.compareTo(bn);
+        return a.slotNumber.compareTo(b.slotNumber);
+      });
       setState(() { slots = list; });
     } catch (e) {
       print('=== ERROR FETCHING SLOTS ===');

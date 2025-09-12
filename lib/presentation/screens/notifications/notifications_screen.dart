@@ -96,7 +96,62 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         itemCount: _notifications.length,
                         itemBuilder: (context, index) {
                           final notification = _notifications[index];
-                          return _buildNotificationItem(notification);
+                          return Dismissible(
+                            key: ValueKey('noti_${notification.id}'),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: const Icon(Icons.delete, color: Colors.white),
+                            ),
+                            confirmDismiss: (direction) async {
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Xóa thông báo?'),
+                                  content: const Text('Bạn có chắc muốn xóa thông báo này?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(false),
+                                      child: const Text('Hủy'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(true),
+                                      child: const Text('Xóa'),
+                                    ),
+                                  ],
+                                ),
+                              ) ?? false;
+                            },
+                            onDismissed: (direction) async {
+                              final removed = notification;
+                              setState(() {
+                                _notifications.removeAt(index);
+                              });
+                              try {
+                                await _service.deleteNotification(removed.id);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Đã xóa thông báo')),
+                                );
+                              } catch (_) {
+                                if (!mounted) return;
+                                // revert on failure
+                                setState(() {
+                                  _notifications.insert(index, removed);
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Xóa thất bại')), 
+                                );
+                              }
+                            },
+                            child: _buildNotificationItem(notification),
+                          );
                         },
                       )),
       ),

@@ -21,6 +21,21 @@ class ParkingOrderService {
       print('Create order response data: ${response.data}');
       
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Some backends wrap the object
+        if (response.data is Map<String, dynamic>) {
+          final Map<String, dynamic> body = response.data as Map<String, dynamic>;
+          if (body['data'] is Map<String, dynamic>) {
+            return ParkingOrder.fromJson(body['data'] as Map<String, dynamic>);
+          }
+          // Minimal response: { "id": number }
+          if (body['id'] != null) {
+            final int id = (body['id'] as num).toInt();
+            // Fetch full order detail using returned id
+            return await getOrderDetail(id);
+          }
+          return ParkingOrder.fromJson(body);
+        }
+        // Fallback attempt
         return ParkingOrder.fromJson(response.data);
       } else {
         throw DioException(
@@ -102,7 +117,21 @@ class ParkingOrderService {
       print('Order detail response data: ${response.data}');
       
       if (response.statusCode == 200) {
-        return ParkingOrder.fromJson(response.data);
+        final data = response.data;
+        if (data is Map<String, dynamic>) {
+          if (data['order'] is Map<String, dynamic>) {
+            return ParkingOrder.fromJson(data['order'] as Map<String, dynamic>);
+          }
+          if (data['data'] is Map<String, dynamic>) {
+            final inner = data['data'] as Map<String, dynamic>;
+            if (inner['order'] is Map<String, dynamic>) {
+              return ParkingOrder.fromJson(inner['order'] as Map<String, dynamic>);
+            }
+            return ParkingOrder.fromJson(inner);
+          }
+          return ParkingOrder.fromJson(data);
+        }
+        return ParkingOrder.fromJson({'id': orderId});
       } else {
         throw DioException(
           requestOptions: response.requestOptions,

@@ -38,20 +38,44 @@ class ParkingOrder {
   });
 
   factory ParkingOrder.fromJson(Map<String, dynamic> json) {
+    int _parseInt(dynamic value) {
+      if (value == null) return 0;
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) return int.tryParse(value) ?? 0;
+      return 0;
+    }
+
+    double? _parseDoubleNullable(dynamic value) {
+      if (value == null) return null;
+      if (value is num) return value.toDouble();
+      if (value is String) return double.tryParse(value);
+      return null;
+    }
+
+    OrderStatus _parseStatus(dynamic value) {
+      final String name = value?.toString() ?? 'pending';
+      try {
+        return OrderStatus.values.byName(name);
+      } catch (_) {
+        return OrderStatus.pending;
+      }
+    }
+
     return ParkingOrder(
-      id: json['id'] as int,
-      vehicleId: json['vehicle_id'] as int,
-      lotId: json['lot_id'] as int,
-      slotId: json['slot_id'] as int,
-      startTime: json['start_time'] as String,
-      endTime: json['end_time'] as String,
-      status: OrderStatus.values.byName(json['status'] as String),
-      createdAt: json['created_at'] as String?,
-      updatedAt: json['updated_at'] as String?,
-      totalAmount: (json['total_amount'] as num?)?.toDouble(),
-      vehicleLicensePlate: json['vehicle_license_plate'] as String?,
-      lotName: json['lot_name'] as String?,
-      slotCode: json['slot_code'] as String?,
+      id: _parseInt(json['id']),
+      vehicleId: _parseInt(json['vehicle_id']),
+      lotId: _parseInt(json['lot_id']),
+      slotId: _parseInt(json['slot_id']),
+      startTime: (json['start_time']?.toString() ?? ''),
+      endTime: (json['end_time']?.toString() ?? ''),
+      status: _parseStatus(json['status']),
+      createdAt: json['created_at']?.toString(),
+      updatedAt: json['updated_at']?.toString(),
+      totalAmount: _parseDoubleNullable(json['total_amount']),
+      vehicleLicensePlate: json['vehicle_license_plate']?.toString(),
+      lotName: json['lot_name']?.toString(),
+      slotCode: json['slot_code']?.toString(),
     );
   }
 

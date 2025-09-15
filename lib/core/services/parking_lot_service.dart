@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../network/api_client.dart';
 import '../constants/api_endpoints.dart';
@@ -126,10 +127,30 @@ class ParkingLotService {
       final response = await _apiClient.get(ApiEndpoints.parkingLotDetail(id));
 
       print('Parking lot detail response status: ${response.statusCode}');
-      print('Parking lot detail response data: ${response.data}');
+      try { print('Parking lot detail response data: ${response.data}'); } catch (_) {}
 
       if (response.statusCode == 200) {
-        return ParkingLotDetailResponse.fromJson(response.data).lot;
+        dynamic data = response.data;
+        // Some backends may return a JSON string despite application/json
+        if (data is String) {
+          try {
+            data = _safeJsonDecode(data);
+          } catch (e) {
+            throw Exception('Invalid JSON format for parking lot detail: $e');
+          }
+        }
+        if (data is Map<String, dynamic>) {
+          // Handle wrappers like { data: { lot: {...} } }
+          if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
+            data = data['data'];
+          }
+          // Allow either { lot: {...} } or direct lot object
+          if (data.containsKey('lot')) {
+            return ParkingLotDetailResponse.fromJson(data as Map<String, dynamic>).lot;
+          }
+          return ParkingLot.fromJson(data as Map<String, dynamic>);
+        }
+        throw Exception('Unexpected parking lot detail format: ${data.runtimeType}');
       } else {
         throw DioException(
           requestOptions: response.requestOptions,
@@ -211,5 +232,13 @@ class ParkingLotService {
     } else {
       return Exception('Lỗi không xác định: ${e.message}');
     }
+  }
+
+  // Decode JSON leniently (tolerate BOM or stray whitespace)
+  Map<String, dynamic> _safeJsonDecode(String source) {
+    final String trimmed = source.trim();
+    return (trimmed.isEmpty
+        ? <String, dynamic>{}
+        : (jsonDecode(trimmed) as Map).cast<String, dynamic>());
   }
 }

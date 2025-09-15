@@ -6,6 +6,7 @@ import '../../../data/models/parking_review_model.dart';
 import '../../../core/services/parking_review_service.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
+import 'package:dio/dio.dart';
 
 class RatingCommentsScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -137,16 +138,44 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
     } catch (e) {
       print('=== ERROR SUBMITTING REVIEW ===');
       print('Error: $e');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Lỗi khi gửi đánh giá: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+
+      // If backend rejects due to no booking, show booking-required popup
+      if (e is DioException && (e.response?.statusCode == 403 || e.response?.statusCode == 401)) {
+        _showBookingRequiredDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi khi gửi đánh giá: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() { _isSubmittingReview = false; });
     }
+  }
+
+  void _showBookingRequiredDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cần đặt chỗ trước'),
+        content: const Text('Bạn chưa đặt bãi xe này. Vui lòng đặt chỗ trước khi viết đánh giá.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Đóng'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushNamed('/select-slot', arguments: widget.parkingLot);
+            },
+            child: const Text('Đặt chỗ ngay'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _deleteReview(int reviewId) async {

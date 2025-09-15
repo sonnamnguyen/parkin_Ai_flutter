@@ -3,6 +3,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../data/models/favorite_model.dart';
+import '../../../core/services/parking_lot_service.dart';
+import '../../../data/models/parking_lot_model.dart';
+import '../../../routes/app_routes.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
@@ -13,6 +16,7 @@ class FavoritesScreen extends StatefulWidget {
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
   final FavoriteService _service = FavoriteService();
+  final ParkingLotService _lotService = ParkingLotService();
   List<FavoriteItem> _items = [];
   bool _loading = false;
   String? _error;
@@ -67,12 +71,86 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final item = _items[index];
-                      return ListTile(
-                        tileColor: AppColors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        title: Text(item.lotName, style: AppThemes.bodyLarge.copyWith(fontWeight: FontWeight.w600)),
-                        subtitle: Text(item.lotAddress, style: AppThemes.bodyMedium),
-                        onTap: () => _showDetail(item),
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => _navigateToDetail(item),
+                          child: Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.local_parking, color: AppColors.primary),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.lotName,
+                                      style: AppThemes.bodyLarge.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.darkGrey,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      item.lotAddress,
+                                      style: AppThemes.bodyMedium.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: () => _navigateToDetail(item),
+                                          icon: const Icon(Icons.visibility_outlined),
+                                          label: const Text('Xem chi tiết'),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: AppColors.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        TextButton.icon(
+                                          onPressed: () => _delete(item),
+                                          icon: const Icon(Icons.delete_outline),
+                                          label: const Text('Xóa'),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: AppColors.error,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -115,6 +193,23 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Xóa thất bại: $e')),
+      );
+    }
+  }
+
+  Future<void> _navigateToDetail(FavoriteItem item) async {
+    try {
+      setState(() { _loading = true; });
+      final ParkingLot lot = await _lotService.getParkingLotDetail(item.lotId);
+      if (!mounted) return;
+      setState(() { _loading = false; });
+      // Navigate directly to slot selection/detail
+      Navigator.of(context).pushNamed(AppRoutes.selectSlot, arguments: lot);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _loading = false; });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Không mở được chi tiết: $e')),
       );
     }
   }

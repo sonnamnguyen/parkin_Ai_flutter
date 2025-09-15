@@ -114,39 +114,85 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                       topRight: Radius.circular(30),
                     ),
                   ),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 30),
-                      _buildNavigationItem(
-                        Icons.home_outlined,
-                        Icons.home,
-                        AppStrings.home,
-                        0,
+                  child: SafeArea(
+                    top: false,
+                    bottom: false,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 30),
+                          _buildNavigationItem(
+                            Icons.home_outlined,
+                            Icons.home,
+                            AppStrings.home,
+                            0,
+                          ),
+                          _buildNavigationItem(
+                            Icons.directions_car_outlined,
+                            Icons.directions_car,
+                            AppStrings.myCars,
+                            1,
+                          ),
+                          _buildNavigationItem(
+                            Icons.notifications_outlined,
+                            Icons.notifications,
+                            AppStrings.notifications,
+                            2,
+                          ),
+                          // Favorites styled like others, inactive grey
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  Navigator.of(context).pushNamed('/favorites');
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                                  decoration: BoxDecoration(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Row(
+                                    children: const [
+                                      Icon(
+                                        Icons.favorite_border,
+                                        color: AppColors.textSecondary,
+                                        size: 24,
+                                      ),
+                                      SizedBox(width: 16),
+                                      Expanded(
+                                        child: Text(
+                                          'Yêu thích',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: AppColors.textSecondary,
+                                            fontWeight: FontWeight.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          _buildNavigationItem(
+                            Icons.account_balance_wallet_outlined,
+                            Icons.account_balance_wallet,
+                            AppStrings.wallet,
+                            3,
+                          ),
+                          const SizedBox(height: 24),
+                          // Settings and Logout
+                          _buildBottomActions(),
+                        ],
                       ),
-                      _buildNavigationItem(
-                        Icons.directions_car_outlined,
-                        Icons.directions_car,
-                        AppStrings.myCars,
-                        1,
-                      ),
-                      _buildNavigationItem(
-                        Icons.notifications_outlined,
-                        Icons.notifications,
-                        AppStrings.notifications,
-                        2,
-                      ),
-                      _buildNavigationItem(
-                        Icons.account_balance_wallet_outlined,
-                        Icons.account_balance_wallet,
-                        AppStrings.wallet,
-                        3,
-                      ),
-                      
-                      const Spacer(),
-                      
-                      // Settings and Logout
-                      _buildBottomActions(),
-                    ],
+                    ),
                   ),
                 ),
               ),

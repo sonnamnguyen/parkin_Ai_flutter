@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../core/services/parking_lot_service.dart';
+import '../../../core/services/favorite_service.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../routes/app_routes.dart';
 
@@ -21,12 +22,14 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
   ParkingLot? _currentParkingLot;
   bool _isLoading = false;
   String? _error;
+  bool _isFavorite = false;
 
   @override
   void initState() {
     super.initState();
     _currentParkingLot = widget.parkingLot;
     _loadParkingLotDetail();
+    _loadFavoriteStatus();
   }
 
   Future<void> _loadParkingLotDetail() async {
@@ -50,20 +53,35 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
     }
   }
 
+  Future<void> _loadFavoriteStatus() async {
+    try {
+      // Optimistically check favorites list for this lot
+      final favorites = await FavoriteService().getFavorites(page: 1, pageSize: 1, lotName: _currentParkingLot?.name);
+      final lotId = (_currentParkingLot ?? widget.parkingLot).id;
+      final exists = favorites.list.any((f) => f.lotId == lotId);
+      if (mounted) setState(() { _isFavorite = exists; });
+    } catch (_) {
+      // Ignore errors for status fetch
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final parkingLot = _currentParkingLot ?? widget.parkingLot;
     
     if (_isLoading) {
       return Scaffold(
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Đang tải thông tin...'),
-            ],
+        resizeToAvoidBottomInset: true,
+        body: const SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Đang tải thông tin...'),
+              ],
+            ),
           ),
         ),
       );
@@ -71,47 +89,55 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
 
     if (_error != null) {
       return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 64,
-                color: AppColors.error,
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: AppColors.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Lỗi tải thông tin',
+                    style: AppThemes.headingMedium.copyWith(
+                      color: AppColors.error,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: AppThemes.bodyMedium.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _loadParkingLotDetail,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.white,
+                    ),
+                    child: const Text('Thử lại'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Lỗi tải thông tin',
-                style: AppThemes.headingMedium.copyWith(
-                  color: AppColors.error,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: AppThemes.bodyMedium.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loadParkingLotDetail,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: AppColors.white,
-                ),
-                child: const Text('Thử lại'),
-              ),
-            ],
+            ),
           ),
         ),
       );
     }
 
     return Scaffold(
-      body: Column(
+      resizeToAvoidBottomInset: true,
+      body: SafeArea(
+        child: Column(
         children: [
           // Image Header
           _buildImageHeader(parkingLot),
@@ -138,6 +164,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
             ),
           ),
         ],
+      ),
       ),
       
       // Bottom Action Bar
@@ -211,17 +238,53 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
                   
                   const Spacer(),
                   
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.white.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.favorite_border,
-                      color: AppColors.darkGrey,
-                      size: 20,
+                  GestureDetector(
+                    onTap: () async {
+                      try {
+                        if (_isFavorite) {
+                          // Find the favorite id for this lot then delete
+                          final list = await FavoriteService().getFavorites(
+                            page: 1,
+                            pageSize: 10,
+                            lotName: parkingLot.name,
+                          );
+                          final match = list.list.firstWhere(
+                            (f) => f.lotId == parkingLot.id,
+                            orElse: () => throw 'Không tìm thấy mục yêu thích',
+                          );
+                          await FavoriteService().deleteFavorite(match.id);
+                          if (mounted) setState(() { _isFavorite = false; });
+                          // ignore: use_build_context_synchronously
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Đã xóa khỏi yêu thích')),
+                          );
+                        } else {
+                          await FavoriteService().addFavorite(lotId: parkingLot.id);
+                          if (mounted) setState(() { _isFavorite = true; });
+                          // ignore: use_build_context_synchronously
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Đã thêm vào yêu thích')),
+                          );
+                        }
+                      } catch (e) {
+                        // ignore: use_build_context_synchronously
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Thao tác yêu thích thất bại: $e')),
+                        );
+                      }
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.white.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        _isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: _isFavorite ? Colors.red : AppColors.darkGrey,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ],
@@ -489,11 +552,18 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
                   'Giá từ',
                   style: AppThemes.bodySmall,
                 ),
-                Text(
-                  parkingLot.formattedPrice,
-                  style: AppThemes.headingSmall.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
+                // Price shrinks if too long and uses integer formatting
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    parkingLot.priceText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppThemes.headingSmall.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],

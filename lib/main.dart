@@ -163,7 +163,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   flex: 1,
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: AppColors.white,
                       borderRadius: BorderRadius.circular(30),
@@ -175,55 +175,62 @@ class _SplashScreenState extends State<SplashScreen> {
                         ),
                       ],
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // App logo and name
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [AppColors.gradientStart, AppColors.gradientEnd],
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // App logo and name
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [AppColors.gradientStart, AppColors.gradientEnd],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                                borderRadius: BorderRadius.circular(12),
+                                child: const Icon(
+                                  Icons.local_parking,
+                                  color: AppColors.white,
+                                  size: 24,
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.local_parking,
-                                color: AppColors.white,
-                                size: 24,
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Text(
+                                  AppStrings.appName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppThemes.headingMedium.copyWith(
+                                    color: AppColors.darkGrey,
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              AppStrings.appName,
-                              style: AppThemes.headingMedium.copyWith(
-                                color: AppColors.darkGrey,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          AppStrings.appSlogan,
-                          style: AppThemes.bodyMedium,
-                        ),
-                        const SizedBox(height: 24),
-                        
-                        // Loading indicator
-                        const CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-                          strokeWidth: 3,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Đang khởi tạo...',
-                          style: AppThemes.bodyMedium,
-                        ),
-                      ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            AppStrings.appSlogan,
+                            textAlign: TextAlign.center,
+                            style: AppThemes.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          // Loading indicator
+                          const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                            strokeWidth: 3,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Đang khởi tạo...',
+                            style: AppThemes.bodyMedium,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

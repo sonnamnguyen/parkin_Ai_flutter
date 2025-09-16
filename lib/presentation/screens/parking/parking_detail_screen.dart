@@ -23,6 +23,8 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
   bool _isLoading = false;
   String? _error;
   bool _isFavorite = false;
+  int _retryCount = 0;
+  static const int _maxRetry = 3;
 
   @override
   void initState() {
@@ -43,6 +45,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
       setState(() {
         _currentParkingLot = parkingLot;
         _isLoading = false;
+        _retryCount = 0;
       });
     } catch (e) {
       setState(() {
@@ -50,13 +53,23 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         _isLoading = false;
       });
       print('Error loading parking lot detail: $e');
+      // Auto retry on failure a few times (simulates pressing "Thử lại")
+      if (mounted && _retryCount < _maxRetry) {
+        _retryCount += 1;
+        // Fast exponential backoff in milliseconds (e.g., 150ms, 300ms, 450ms)
+        final int delayMs = 50 * _retryCount;
+        Future.delayed(Duration(milliseconds: delayMs), () {
+          if (!mounted) return;
+          _loadParkingLotDetail();
+        });
+      }
     }
   }
 
   Future<void> _loadFavoriteStatus() async {
     try {
       // Optimistically check favorites list for this lot
-      final favorites = await FavoriteService().getFavorites(page: 1, pageSize: 1, lotName: _currentParkingLot?.name);
+      final favorites = await FavoriteService().getFavorites(lotName: _currentParkingLot?.name);
       final lotId = (_currentParkingLot ?? widget.parkingLot).id;
       final exists = favorites.list.any((f) => f.lotId == lotId);
       if (mounted) setState(() { _isFavorite = exists; });
@@ -244,8 +257,7 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
                         if (_isFavorite) {
                           // Find the favorite id for this lot then delete
                           final list = await FavoriteService().getFavorites(
-                            page: 1,
-                            pageSize: 10,
+
                             lotName: parkingLot.name,
                           );
                           final match = list.list.firstWhere(

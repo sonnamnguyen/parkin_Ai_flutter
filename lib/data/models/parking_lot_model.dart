@@ -56,38 +56,55 @@ class ParkingLot {
     this.distance = 0.0,
   });
 
-  factory ParkingLot.fromJson(Map<String, dynamic> json) => ParkingLot(
-    id: _parseInt(json['id']),
-    name: json['name']?.toString() ?? '',
-    address: json['address']?.toString() ?? '',
-    latitude: _parseDouble(json['latitude']),
-    longitude: _parseDouble(json['longitude']),
-    ownerId: _parseInt(json['owner_id']),
-    isVerified: json['is_verified'] == true || json['is_verified'] == 'true',
-    isActive: json['is_active'] == true || json['is_active'] == 'true',
-    totalSlots: _parseInt(json['total_slots']),
-    availableSlots: _parseInt(json['available_slots']),
-    pricePerHour: _parseDouble(json['price_per_hour']),
-    description: json['description']?.toString() ?? '',
-    openTime: json['open_time']?.toString() ?? '',
-    closeTime: json['close_time']?.toString() ?? '',
-    imageUrl: json['image_url']?.toString() ?? '',
-    images: (json['images'] as List? ?? [])
-        .map((image) => ParkingLotImage.fromJson(image as Map<String, dynamic>))
-        .toList(),
-    createdAt: _parseDateTime(json['created_at']),
-    updatedAt: _parseDateTime(json['updated_at']),
-    rating: _parseDouble(json['rating']),
-    reviewCount: _parseInt(json['review_count']),
-    amenities: (json['amenities'] as List? ?? [])
-        .map((amenity) => amenity.toString())
-        .toList(),
-    operatingHours: json['operating_hours'] != null 
-        ? ParkingHours.fromJson(json['operating_hours'] as Map<String, dynamic>)
-        : null,
-    isOpen: json['is_open'] == true || json['is_open'] == 'true',
-    distance: _parseDouble(json['distance']),
-  );
+  factory ParkingLot.fromJson(Map<String, dynamic> json) {
+    try {
+      return ParkingLot(
+        id: _parseInt(json['id']),
+        name: json['name']?.toString() ?? '',
+        address: json['address']?.toString() ?? '',
+        latitude: _parseDouble(json['latitude']),
+        longitude: _parseDouble(json['longitude']),
+        ownerId: _parseInt(json['owner_id']),
+        isVerified: json['is_verified'] == true || json['is_verified'] == 'true' || json['is_verified'] == 1,
+        isActive: json['is_active'] == true || json['is_active'] == 'true' || json['is_active'] == 1,
+        totalSlots: _parseInt(json['total_slots']),
+        availableSlots: _parseInt(json['available_slots']),
+        pricePerHour: _parseDouble(json['price_per_hour']),
+        description: json['description']?.toString() ?? '',
+        openTime: _formatTime(json['open_time']?.toString() ?? ''),
+        closeTime: _formatTime(json['close_time']?.toString() ?? ''),
+        imageUrl: json['image_url']?.toString() ?? '',
+        images: (json['images'] as List? ?? [])
+            .map((image) {
+              try {
+                return ParkingLotImage.fromJson(image as Map<String, dynamic>);
+              } catch (e) {
+                print('Error parsing parking lot image: $e, data: $image');
+                return null;
+              }
+            })
+            .where((image) => image != null)
+            .cast<ParkingLotImage>()
+            .toList(),
+        createdAt: _parseDateTime(json['created_at']),
+        updatedAt: _parseDateTime(json['updated_at']),
+        rating: _parseDouble(json['rating']),
+        reviewCount: _parseInt(json['review_count']),
+        amenities: (json['amenities'] as List? ?? [])
+            .map((amenity) => amenity.toString())
+            .toList(),
+        operatingHours: json['operating_hours'] != null 
+            ? ParkingHours.fromJson(json['operating_hours'] as Map<String, dynamic>)
+            : null,
+        isOpen: json['is_open'] == true || json['is_open'] == 'true' || json['is_open'] == 1,
+        distance: _parseDouble(json['distance']),
+      );
+    } catch (e) {
+      print('Error parsing ParkingLot: $e');
+      print('JSON data: $json');
+      rethrow;
+    }
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -180,7 +197,12 @@ class ParkingLot {
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
-    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      // Remove any non-numeric characters except minus sign
+      final cleaned = value.replaceAll(RegExp(r'[^\d.-]'), '');
+      return int.tryParse(cleaned) ?? 0;
+    }
     return 0;
   }
 
@@ -188,7 +210,11 @@ class ParkingLot {
     if (value == null) return 0.0;
     if (value is double) return value;
     if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
+    if (value is String) {
+      // Remove any non-numeric characters except minus sign and decimal point
+      final cleaned = value.replaceAll(RegExp(r'[^\d.-]'), '');
+      return double.tryParse(cleaned) ?? 0.0;
+    }
     return 0.0;
   }
 
@@ -197,12 +223,41 @@ class ParkingLot {
     if (value is DateTime) return value;
     if (value is String) {
       try {
-        return DateTime.parse(value);
+        // Handle different date formats
+        if (value.contains(' ')) {
+          // Format: "2006-01-02 15:04:05"
+          return DateTime.parse(value);
+        } else if (value.contains('T')) {
+          // ISO format
+          return DateTime.parse(value);
+        } else {
+          // Try parsing as is
+          return DateTime.parse(value);
+        }
       } catch (e) {
         return DateTime.now();
       }
     }
     return DateTime.now();
+  }
+
+  static String _formatTime(String timeString) {
+    if (timeString.isEmpty) return '';
+    
+    try {
+      // Handle time format like "15:04:05"
+      if (timeString.contains(':')) {
+        final parts = timeString.split(':');
+        if (parts.length >= 2) {
+          final hour = int.tryParse(parts[0]) ?? 0;
+          final minute = int.tryParse(parts[1]) ?? 0;
+          return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+        }
+      }
+      return timeString;
+    } catch (e) {
+      return timeString;
+    }
   }
 
   @override

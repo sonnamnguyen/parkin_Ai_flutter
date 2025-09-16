@@ -11,6 +11,7 @@ import '../../../data/models/parking_lot_list_response_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../../data/models/parking_hours_model.dart';
 import '../../../core/services/parking_lot_service.dart';
+import '../../../routes/app_routes.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _searchController.dispose();
     super.dispose();
   }
+
 
   Future<void> _initializeLocation() async {
     setState(() {
@@ -167,146 +169,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _markers = markers;
     });
   }
-
-  // Mock data for nearby parking lots in HCMC area (fallback)
-  final List<ParkingLot> _mockNearbyParking = [
-    ParkingLot(
-      id: 1,
-      name: 'Bãi xe Đại học Khoa học Tự nhiên',
-      address: '227 Nguyễn Văn Cừ, Quận 5, TP.HCM',
-      latitude: 10.7624,
-      longitude: 106.6808,
-      ownerId: 1,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 50,
-      availableSlots: 12,
-      pricePerHour: 15000,
-      description: 'Bãi đậu xe an toàn gần đại học',
-      openTime: '06:00',
-      closeTime: '22:00',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.1,
-      reviewCount: 127,
-      amenities: ['CCTV', 'Bảo vệ 24/7'],
-      operatingHours: ParkingHours(
-        monday: '06:00 - 22:00',
-        tuesday: '06:00 - 22:00',
-        wednesday: '06:00 - 22:00',
-        thursday: '06:00 - 22:00',
-        friday: '06:00 - 22:00',
-        saturday: '06:00 - 22:00',
-        sunday: '06:00 - 22:00',
-      ),
-      isOpen: true,
-      distance: 500,
-    ),
-    ParkingLot(
-      id: 2,
-      name: 'Bãi xe Nguyễn Đình Chiểu',
-      address: '283 Nguyễn Đình Chiểu, Quận 3, TP.HCM',
-      latitude: 10.7798,
-      longitude: 106.6879,
-      ownerId: 2,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 35,
-      availableSlots: 8,
-      pricePerHour: 20000,
-      description: 'Bãi đậu xe trung tâm quận 3',
-      openTime: '06:00',
-      closeTime: '23:00',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.3,
-      reviewCount: 89,
-      amenities: ['CCTV', 'Bảo vệ 24/7', 'Mái che'],
-      operatingHours: ParkingHours(
-        monday: '06:00 - 23:00',
-        tuesday: '06:00 - 23:00',
-        wednesday: '06:00 - 23:00',
-        thursday: '06:00 - 23:00',
-        friday: '06:00 - 23:00',
-        saturday: '06:00 - 23:00',
-        sunday: '06:00 - 23:00',
-      ),
-      isOpen: true,
-      distance: 300,
-    ),
-    ParkingLot(
-      id: 3,
-      name: 'Bãi xe Lotte Mart',
-      address: '469 Nguyễn Hữu Thọ, Quận 7, TP.HCM',
-      latitude: 10.7411,
-      longitude: 106.7200,
-      ownerId: 3,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 120,
-      availableSlots: 45,
-      pricePerHour: 10000,
-      description: 'Bãi đậu xe tại trung tâm thương mại',
-      openTime: '07:00',
-      closeTime: '22:00',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.5,
-      reviewCount: 203,
-      amenities: ['CCTV', 'Bảo vệ 24/7', 'Mái che', 'Thang máy'],
-      operatingHours: ParkingHours(
-        monday: '07:00 - 22:00',
-        tuesday: '07:00 - 22:00',
-        wednesday: '07:00 - 22:00',
-        thursday: '07:00 - 22:00',
-        friday: '07:00 - 22:00',
-        saturday: '07:00 - 23:00',
-        sunday: '07:00 - 23:00',
-      ),
-      isOpen: true,
-      distance: 1200,
-    ),
-    ParkingLot(
-      id: 4,
-      name: 'Bãi xe Thủ Đức',
-      address: 'Đường Võ Văn Ngân, TP. Thủ Đức, TP.HCM',
-      latitude: 10.8505,
-      longitude: 106.7717,
-      ownerId: 4,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 80,
-      availableSlots: 23,
-      pricePerHour: 12000,
-      description: 'Bãi đậu xe gần khu công nghệ cao',
-      openTime: '06:30',
-      closeTime: '21:30',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.0,
-      reviewCount: 156,
-      amenities: ['CCTV', 'Bảo vệ ban ngày'],
-      operatingHours: ParkingHours(
-        monday: '06:30 - 21:30',
-        tuesday: '06:30 - 21:30',
-        wednesday: '06:30 - 21:30',
-        thursday: '06:30 - 21:30',
-        friday: '06:30 - 21:30',
-        saturday: '07:00 - 21:00',
-        sunday: '07:00 - 21:00',
-      ),
-      isOpen: true,
-      distance: 2500,
-    ),
-  ];
 
   ParkingLot? _selectedParking;
 
@@ -443,12 +305,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         _isMapReady = true;
                       });
                       
-                      // Load parking lots if we have location, otherwise use mock data
+                      // Load parking lots from API
                       if (_currentPosition != null) {
                         await _loadNearbyParkingLots();
-                      } else {
-                        _nearbyParking = _mockNearbyParking;
-                        await _createMarkersFromParkingLots();
                       }
                     },
                     markers: _markers,
@@ -484,28 +343,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: _buildVehicleCard(parking: _selectedParking!),
                   ),
 
-                // My Location Button
+                // My Location Button - same row as thunder icon
                 if (!_isLoadingLocation)
                   Positioned(
-                    top: 16,
+                    bottom: 80,
                     right: 16,
-                    child: FloatingActionButton(
-                      mini: true,
-                      backgroundColor: AppColors.white,
-                      onPressed: _getCurrentLocation,
-                      child: const Icon(
-                        Icons.my_location,
-                        color: AppColors.primary,
+                    child: GestureDetector(
+                      onTap: _getCurrentLocation,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: AppColors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.my_location,
+                          color: AppColors.primary,
+                          size: 24,
+                        ),
                       ),
                     ),
                   ),
 
-                // Quick Actions at Bottom
+                // Thunder Icon - moved to left side
                 Positioned(
                   bottom: 80,
                   left: 16,
-                  right: 16,
-                  child: _buildQuickActions(),
+                  child: _buildThunderButton(),
                 ),
 
                 // Search Bar at Bottom
@@ -703,7 +575,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return GestureDetector(
       onTap: () {
         Navigator.of(context).pushNamed(
-          '/parking-detail',
+          AppRoutes.parkingDetail,
           arguments: parking,
         );
       },
@@ -796,91 +668,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildQuickActions() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildQuickActionButton(
-          icon: Icons.home,
-          label: AppStrings.nearby,
-          color: AppColors.primary,
-          onTap: () {
-            _triggerAIAnalysis();
-          },
-        ),
-        _buildQuickActionButton(
-          icon: Icons.directions_car,
-          label: 'Chợ',
-          color: AppColors.info,
-          onTap: () => _filterParkingByType('market'),
-        ),
-        _buildQuickActionButton(
-          icon: Icons.fitness_center,
-          label: 'Gym',
-          color: AppColors.warning,
-          onTap: () => _filterParkingByType('gym'),
-        ),
-        _buildQuickActionButton(
-          icon: Icons.account_balance,
-          label: 'Bank',
-          color: AppColors.success,
-          onTap: () => _filterParkingByType('bank'),
-        ),
-      ],
-    );
-  }
-
-  void _filterParkingByType(String type) {
-    if (!mounted) return;
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Tìm kiếm bãi đậu xe gần $type'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  Widget _buildQuickActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    VoidCallback? onTap,
-  }) {
+  Widget _buildThunderButton() {
     return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+      onTap: () {
+        _triggerAIAnalysis();
+      },
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
             ),
-            child: Icon(
-              icon,
-              color: AppColors.white,
-              size: 24,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: AppThemes.caption.copyWith(
-              fontWeight: FontWeight.w500,
-              color: AppColors.darkGrey,
-            ),
-          ),
-        ],
+          ],
+        ),
+        child: const Icon(
+          Icons.flash_on, // Thunder/lightning icon
+          color: AppColors.white,
+          size: 24,
+        ),
       ),
     );
   }
@@ -1074,7 +885,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               if (bestParking != null) {
                 _selectParking(bestParking);
                 Navigator.of(context).pushNamed(
-                  '/parking-detail',
+                  AppRoutes.parkingDetail,
                   arguments: bestParking,
                 );
               }

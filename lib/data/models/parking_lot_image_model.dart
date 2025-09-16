@@ -40,7 +40,12 @@ class ParkingLotImage {
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
-    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      // Remove any non-numeric characters except minus sign
+      final cleaned = value.replaceAll(RegExp(r'[^\d.-]'), '');
+      return int.tryParse(cleaned) ?? 0;
+    }
     return 0;
   }
 

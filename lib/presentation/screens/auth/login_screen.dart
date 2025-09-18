@@ -164,8 +164,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Email/Phone Field
                     CustomTextField(
                       controller: _emailController,
-                      label: 'Email hoặc số điện thoại',
-                      hintText: 'user@gmail.com hoặc +849876544321',
+                      label: 'Email',
+                      hintText: 'Example@gmail.com',
                       keyboardType: TextInputType.emailAddress,
                       prefixIcon: Icons.email_outlined,
                       validator: (value) {

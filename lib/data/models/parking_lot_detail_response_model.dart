@@ -8,7 +8,9 @@ class ParkingLotDetailResponse {
   });
 
   factory ParkingLotDetailResponse.fromJson(Map<String, dynamic> json) => ParkingLotDetailResponse(
-    lot: ParkingLot.fromJson(json['lot'] as Map<String, dynamic>),
+    lot: ParkingLot.fromJson(json['lot'] is Map<String, dynamic> 
+        ? json['lot'] as Map<String, dynamic>
+        : json as Map<String, dynamic>),
   );
 
   Map<String, dynamic> toJson() => {

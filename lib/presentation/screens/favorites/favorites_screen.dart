@@ -203,8 +203,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       final ParkingLot lot = await _lotService.getParkingLotDetail(item.lotId);
       if (!mounted) return;
       setState(() { _loading = false; });
-      // Navigate directly to slot selection/detail
-      Navigator.of(context).pushNamed(AppRoutes.selectSlot, arguments: lot);
+      // Navigate to parking lot detail screen
+      Navigator.of(context).pushNamed(AppRoutes.parkingDetail, arguments: lot);
     } catch (e) {
       if (!mounted) return;
       setState(() { _loading = false; });

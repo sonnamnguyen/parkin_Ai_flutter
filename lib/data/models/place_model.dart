@@ -43,6 +43,26 @@ class PlaceModel {
     );
   }
 
+  factory PlaceModel.fromGoongJson(Map<String, dynamic> json) {
+    final geometry = json['geometry'] as Map<String, dynamic>?;
+    final location = geometry?['location'] as Map<String, dynamic>?;
+    
+    return PlaceModel(
+      placeId: json['place_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      formattedAddress: json['formatted_address'] as String? ?? '',
+      latitude: location?['lat']?.toDouble(),
+      longitude: location?['lng']?.toDouble(),
+      photoReference: json['photos']?.isNotEmpty == true 
+          ? json['photos'][0]['photo_reference'] as String?
+          : null,
+      rating: json['rating']?.toDouble(),
+      userRatingsTotal: json['user_ratings_total'] as int?,
+      types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
+      vicinity: json['vicinity'] as String?,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'place_id': placeId,
@@ -96,6 +116,16 @@ class PlacePrediction {
       description: json['description'] as String? ?? '',
       mainText: structuredFormatting?['main_text'] as String? ?? '',
       secondaryText: structuredFormatting?['secondary_text'] as String? ?? '',
+      types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
+    );
+  }
+
+  factory PlacePrediction.fromGoongJson(Map<String, dynamic> json) {
+    return PlacePrediction(
+      placeId: json['place_id'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      mainText: json['structured_formatting']?['main_text'] as String? ?? '',
+      secondaryText: json['structured_formatting']?['secondary_text'] as String? ?? '',
       types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
     );
   }

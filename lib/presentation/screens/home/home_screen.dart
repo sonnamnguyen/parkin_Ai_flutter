@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:mapbox_gl/mapbox_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/app_colors.dart';
@@ -12,6 +12,7 @@ import '../../providers/auth_provider.dart';
 import '../../../data/models/parking_hours_model.dart';
 import '../../../core/services/parking_lot_service.dart';
 import '../../../routes/app_routes.dart';
+import '../../../core/constants/api_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,15 +25,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final ParkingLotService _parkingLotService = ParkingLotService();
   bool _isAnalyzing = false;
-  GoogleMapController? _mapController;
+  MapboxMapController? _mapController;
   Position? _currentPosition;
   bool _isLocationPermissionGranted = false;
-  Set<Marker> _markers = {};
+  List<Symbol> _markers = [];
+  List<Circle> _circles = [];
+  final Map<String, ParkingLot> _symbolIdToParking = {};
+  final Map<String, ParkingLot> _circleIdToParking = {};
   bool _isMapReady = false;
   bool _isLoadingLocation = true;
   bool _isLoadingParkingLots = false;
   List<ParkingLot> _nearbyParking = [];
   String? _error;
+  bool _goongTilesAdded = false;
+  Symbol? _userLocationSymbol;
+  static const bool _enableGoongOverlay = false;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
@@ -48,9 +55,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
+    _isMapReady = false;
+    _symbolIdToParking.clear();
+    _mapController = null;
     super.dispose();
   }
-
 
   Future<void> _initializeLocation() async {
     setState(() {
@@ -84,8 +93,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _currentPosition = position;
       });
 
-      if (_isMapReady) {
+      debugPrint('Current position: ${position.latitude}, ${position.longitude}');
+
+      if (_isMapReady && _mapController != null) {
         _updateMapLocation();
+        await _renderUserLocationSymbol();
         await _loadNearbyParkingLots();
       }
     } catch (e) {
@@ -129,45 +141,223 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
 
       debugPrint('Home: received ${response.list.length} lots');
+      if (!mounted || !_isMapReady || _mapController == null) return;
+      
+      // Clear existing parking markers before adding new ones
+      await _clearParkingMarkers();
       await _createMarkersFromParkingLots();
     } catch (e) {
       setState(() {
         _error = e.toString();
         _isLoadingParkingLots = false;
       });
-      print('Error loading parking lots: $e');
+      debugPrint('Error loading parking lots: $e');
+    }
+  }
+
+  Future<void> _clearParkingMarkers() async {
+    if (_mapController == null) return;
+    
+    try {
+      // Clear existing parking markers (not user location)
+      for (final symbolId in _symbolIdToParking.keys) {
+        final symbol = _markers.firstWhere((s) => s.id == symbolId, orElse: () => Symbol('', SymbolOptions()));
+        if (symbol.id.isNotEmpty) {
+          await _mapController!.removeSymbol(symbol);
+        }
+      }
+      // Clear circles
+      for (final circle in _circles) {
+        await _mapController!.removeCircle(circle);
+      }
+      _symbolIdToParking.clear();
+      _circleIdToParking.clear();
+      _markers.clear();
+      _circles.clear();
+    } catch (e) {
+      debugPrint('Error clearing markers: $e');
     }
   }
 
   Future<void> _createMarkersFromParkingLots() async {
     if (!_isMapReady || _mapController == null) return;
 
-    final markers = <Marker>{};
+    debugPrint('Creating markers for ${_nearbyParking.length} parking lots');
+    
+    // Wait a bit to ensure map is fully ready
+    await Future.delayed(const Duration(milliseconds: 300));
     
     for (int i = 0; i < _nearbyParking.length; i++) {
       final parking = _nearbyParking[i];
-      final marker = Marker(
-        markerId: MarkerId('parking_${parking.id}'),
-        position: LatLng(parking.latitude, parking.longitude),
-        infoWindow: InfoWindow(
-          title: parking.name,
-          snippet: '${parking.availableSlots}/${parking.totalSlots} chỗ trống',
+      
+      try {
+        final symbol = await _mapController!.addSymbol(
+          SymbolOptions(
+            geometry: LatLng(parking.latitude, parking.longitude),
+            // Render a pink "P" label at the location
+            textField: 'P',
+            textSize: 16.0,
+            textColor: '#FF2D87',
+            textHaloColor: '#FFFFFF',
+            textHaloWidth: 2.0,
+            textOffset: const Offset(0, 0),
+            textAnchor: 'center',
+          ),
+        );
+        
+        _markers.add(symbol);
+        _symbolIdToParking[symbol.id] = parking;
+        debugPrint('Added marker for ${parking.name} at ${parking.latitude}, ${parking.longitude}');
+        // Add a visible circle so the location is always shown even if sprite icons are missing
+        try {
+          final circle = await _mapController!.addCircle(
+            CircleOptions(
+              geometry: LatLng(parking.latitude, parking.longitude),
+              circleRadius: 8.0,
+              circleColor: '#FFE0EC',
+              circleStrokeColor: '#FF2D87',
+              circleStrokeWidth: 1.0,
+            ),
+          );
+          _circles.add(circle);
+          _circleIdToParking[circle.id] = parking;
+        } catch (circleAddError) {
+          debugPrint('Non-fatal: could not add circle for ${parking.name}: $circleAddError');
+        }
+        
+      } catch (e) {
+        debugPrint('Error adding symbol for ${parking.name}: $e');
+        
+        // Fallback 1: try with default marker only
+        try {
+          final symbol = await _mapController!.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(parking.latitude, parking.longitude),
+              textField: 'P',
+              textSize: 16.0,
+              textColor: '#FF2D87',
+              textHaloColor: '#FFFFFF',
+              textHaloWidth: 2.0,
+              textOffset: const Offset(0, 0),
+              textAnchor: 'center',
+            ),
+          );
+          _markers.add(symbol);
+          _symbolIdToParking[symbol.id] = parking;
+          debugPrint('Added fallback marker for ${parking.name}');
+        } catch (fallbackError) {
+          debugPrint('Fallback marker also failed for ${parking.name}: $fallbackError');
+          // Fallback 2: draw a circle so something is visible
+          try {
+            final circle = await _mapController!.addCircle(
+              CircleOptions(
+                geometry: LatLng(parking.latitude, parking.longitude),
+                circleRadius: 8.0,
+                circleColor: '#FFE0EC',
+                circleStrokeColor: '#FF2D87',
+                circleStrokeWidth: 1.0,
+              ),
+            );
+            _circles.add(circle);
+            _circleIdToParking[circle.id] = parking;
+            debugPrint('Added circle marker for ${parking.name}');
+          } catch (circleError) {
+            debugPrint('Circle marker also failed for ${parking.name}: $circleError');
+          }
+        }
+      }
+    }
+    debugPrint('Total markers added: ${_symbolIdToParking.length}');
+    await _fitCameraToAllPoints();
+  }
+
+  Future<void> _renderUserLocationSymbol() async {
+    if (!_isMapReady || _mapController == null || _currentPosition == null) {
+      debugPrint('Cannot render user location: isMapReady=$_isMapReady, hasController=${_mapController != null}, hasPosition=${_currentPosition != null}');
+      return;
+    }
+    
+    final LatLng userLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    debugPrint('Rendering user location symbol at: ${userLocation.latitude}, ${userLocation.longitude}');
+    
+    try {
+      // Remove existing user location symbol if it exists
+      if (_userLocationSymbol != null) {
+        await _mapController!.removeSymbol(_userLocationSymbol!);
+        _userLocationSymbol = null;
+      }
+
+      // Add new user location symbol
+      _userLocationSymbol = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: userLocation,
+          iconImage: 'marker-15',
+          iconColor: '#1E88E5',
+          iconSize: 1.5,
         ),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          parking.hasAvailableSlots ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
-        ),
-        onTap: () {
-          setState(() {
-            _selectedParking = parking;
-          });
-        },
       );
-      markers.add(marker);
+      
+      debugPrint('User location symbol added successfully');
+      
+    } catch (e) {
+      debugPrint('Error rendering user location symbol: $e');
+      
+      // Try alternative approach with different styling
+      try {
+        _userLocationSymbol = await _mapController!.addSymbol(
+          SymbolOptions(
+            geometry: userLocation,
+            iconImage: 'marker-blue-15',
+            iconSize: 1.5,
+          ),
+        );
+        debugPrint('User location symbol added with fallback styling');
+      } catch (fallbackError) {
+        debugPrint('Fallback user location symbol also failed: $fallbackError');
+      }
+    }
+  }
+
+  Future<void> _fitCameraToAllPoints() async {
+    if (_mapController == null) return;
+    final List<LatLng> points = [];
+    for (final symbol in _markers) {
+      if (symbol.options.geometry != null) {
+        points.add(symbol.options.geometry!);
+      }
+    }
+    if (_userLocationSymbol?.options.geometry != null) {
+      points.add(_userLocationSymbol!.options.geometry!);
+    }
+    if (points.isEmpty) return;
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
     }
 
-    setState(() {
-      _markers = markers;
-    });
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds,
+            top: 80, right: 80, bottom: 80, left: 80),
+      );
+    } catch (e) {
+      try {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds),
+        );
+      } catch (_) {}
+    }
   }
 
   ParkingLot? _selectedParking;
@@ -176,6 +366,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
+        debugPrint('Location service not enabled');
         setState(() {
           _isLocationPermissionGranted = false;
         });
@@ -188,15 +379,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       if (permission == LocationPermission.deniedForever) {
+        debugPrint('Location permission denied forever');
         setState(() {
           _isLocationPermissionGranted = false;
         });
         return;
       }
 
-      setState(() {
-        _isLocationPermissionGranted = permission == LocationPermission.whileInUse || 
+      final isGranted = permission == LocationPermission.whileInUse || 
                                      permission == LocationPermission.always;
+      
+      debugPrint('Location permission granted: $isGranted');
+      setState(() {
+        _isLocationPermissionGranted = isGranted;
       });
     } catch (e) {
       debugPrint('Error requesting location permission: $e');
@@ -205,8 +400,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
   }
-
-  
 
   @override
   Widget build(BuildContext context) {
@@ -287,51 +480,93 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   )
                 else
-                  // Google Maps
-                  GoogleMap(
+                  // Mapbox GL Map
+                  MapboxMap(
+                    accessToken: ApiConfig.mapboxAccessToken,
                     initialCameraPosition: CameraPosition(
                       target: _currentPosition != null 
                           ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
                           : _hcmCenter,
                       zoom: 14,
                     ),
-                    onMapCreated: (GoogleMapController controller) async {
+                    onMapCreated: (MapboxMapController controller) async {
+                      debugPrint('Map created, initializing controller...');
                       _mapController = controller;
                       
-                      // Add a small delay to ensure map is fully initialized
-                      await Future.delayed(const Duration(milliseconds: 500));
+                      // Handle marker taps
+                      _mapController!.onSymbolTapped.add((Symbol symbol) {
+                        debugPrint('Symbol tapped: ${symbol.id}');
+                        final parking = _symbolIdToParking[symbol.id];
+                        if (parking != null) {
+                          _selectParking(parking);
+                        }
+                      });
+                      // Handle circle taps
+                      _mapController!.onCircleTapped.add((Circle circle) {
+                        debugPrint('Circle tapped: ${circle.id}');
+                        final parking = _circleIdToParking[circle.id];
+                        if (parking != null) {
+                          _selectParking(parking);
+                        }
+                      });
+                    },
+                    onStyleLoadedCallback: () async {
+                      debugPrint('Map style loaded');
+                      
+                      try {
+                        // Add custom tile source if needed
+                        if (_enableGoongOverlay && !_goongTilesAdded && _mapController != null) {
+                          final tilesUrl = 'https://tile.goong.io/maps/{z}/{x}/{y}.png?api_key=${ApiConfig.goongMapsApiKey}';
+                          await _mapController!.addSource(
+                            'goong-tiles',
+                            RasterSourceProperties(
+                              tiles: [tilesUrl],
+                              tileSize: 256,
+                            ),
+                          );
+                          await _mapController!.addLayer(
+                            'goong-tiles',
+                            'goong-layer',
+                            const RasterLayerProperties(),
+                            belowLayerId: 'settlement-label',
+                          );
+                          _goongTilesAdded = true;
+                          debugPrint('Goong tiles added successfully');
+                        }
+                      } catch (e) {
+                        debugPrint('Error adding Goong raster layer: $e');
+                      }
                       
                       setState(() {
                         _isMapReady = true;
                       });
                       
-                      // Load parking lots from API
-                      if (_currentPosition != null) {
+                      debugPrint('Map ready, current position: $_currentPosition');
+                      
+                      // Add markers when map is ready
+                      if (_currentPosition != null && mounted) {
+                        await _renderUserLocationSymbol();
+                        await _loadNearbyParkingLots();
+                      } else {
+                        // Load parking lots for HCM center if no current position
                         await _loadNearbyParkingLots();
                       }
                     },
-                    markers: _markers,
-                    myLocationEnabled: _isLocationPermissionGranted,
-                    myLocationButtonEnabled: false,
-                    zoomControlsEnabled: false,
-                    mapToolbarEnabled: false,
-                    compassEnabled: true,
-                    rotateGesturesEnabled: true,
-                    scrollGesturesEnabled: true,
-                    zoomGesturesEnabled: true,
-                    tiltGesturesEnabled: true,
-                    onTap: (_) {
+                    onMapClick: (point, coordinates) {
                       if (_selectedParking != null) {
                         setState(() {
                           _selectedParking = null;
                         });
                       }
                     },
-                    mapType: MapType.normal,
-                    // Add lite mode for better performance on some devices
-                    liteModeEnabled: false,
-                    // Disable traffic to reduce network requests
-                    trafficEnabled: false,
+                    styleString: 'mapbox://styles/mapbox/streets-v12',
+                    myLocationEnabled: false,
+                    myLocationTrackingMode: MyLocationTrackingMode.None,
+                    compassEnabled: true,
+                    rotateGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    zoomGesturesEnabled: true,
+                    tiltGesturesEnabled: true,
                   ),
 
                 // Vehicle Card Overlay
@@ -343,13 +578,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: _buildVehicleCard(parking: _selectedParking!),
                   ),
 
-                // My Location Button - same row as thunder icon
+                
+
+                // My Location Button
                 if (!_isLoadingLocation)
                   Positioned(
                     bottom: 80,
                     right: 16,
                     child: GestureDetector(
-                      onTap: _getCurrentLocation,
+                      onTap: () {
+                        debugPrint('My location button tapped');
+                        _getCurrentLocation();
+                      },
                       child: Container(
                         width: 56,
                         height: 56,
@@ -364,16 +604,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.my_location,
-                          color: AppColors.primary,
+                      child: const Icon(
+                        Icons.my_location,
+                        color: AppColors.primary,
                           size: 24,
                         ),
                       ),
                     ),
                   ),
 
-                // Thunder Icon - moved to left side
+                // Thunder Icon
                 Positioned(
                   bottom: 80,
                   left: 16,
@@ -397,7 +637,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: _buildAIAnalysisButton(),
                   ),
 
-                // Small loading overlay while fetching parking lots
+                // Loading overlay for parking lots
                 if (!_isLoadingLocation && _isLoadingParkingLots)
                   Positioned(
                     top: 20,
@@ -419,6 +659,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
+
+  // ... rest of your widget methods remain the same ...
 
   Widget _buildTopBar() {
     return Consumer<AuthProvider>(
@@ -514,14 +756,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (_selectedParking != null && _mapController != null) {
       _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(
+    CameraUpdate.newLatLngZoom(  // ✅ Correct API
           LatLng(parking.latitude, parking.longitude),
           16,
         ),
       );
     }
   }
-
   Widget _buildSearchBar() {
     return Container(
       decoration: BoxDecoration(
@@ -670,28 +911,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildThunderButton() {
     return GestureDetector(
-      onTap: () {
-        _triggerAIAnalysis();
-      },
+          onTap: () {
+            _triggerAIAnalysis();
+          },
       child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
           color: AppColors.primary,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
               color: AppColors.primary.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ],
-        ),
         child: const Icon(
           Icons.flash_on, // Thunder/lightning icon
-          color: AppColors.white,
-          size: 24,
-        ),
+              color: AppColors.white,
+              size: 24,
+            ),
       ),
     );
   }

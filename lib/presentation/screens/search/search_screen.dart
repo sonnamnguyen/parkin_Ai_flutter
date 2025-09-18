@@ -4,7 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/place_model.dart';
-import '../../../core/services/places_service.dart';
+import '../../../core/services/goong_places_service.dart';
 import '../../../core/services/parking_lot_service.dart';
 import '../../widgets/common/custom_text_field.dart';
 import '../../../data/models/parking_hours_model.dart';
@@ -33,7 +33,7 @@ class _SearchScreenState extends State<SearchScreen> {
   List<ParkingLot> _nearbyLots = [];
   bool _isSearching = false;
   bool _showSuggestions = false;
-  String _sessionToken = PlacesService.generateSessionToken();
+  String _sessionToken = GoongPlacesService.generateSessionToken();
 
   final List<ParkingLot> _nearbyParking = [
     ParkingLot(
@@ -153,9 +153,8 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final predictions = await PlacesService.getPlaceAutocomplete(
+      final predictions = await GoongPlacesService.getPlaceAutocomplete(
         query,
-        sessionToken: _sessionToken,
         language: 'vi',
       );
 
@@ -179,11 +178,9 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final placeDetails = await PlacesService.getPlaceDetails(
+      final placeDetails = await GoongPlacesService.getPlaceDetails(
         prediction.placeId,
-        sessionToken: _sessionToken,
         language: 'vi',
-        fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'user_ratings_total', 'photos', 'types'],
       );
 
       if (placeDetails != null) {
@@ -252,7 +249,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = await PlacesService.searchPlaces(
+      final results = await GoongPlacesService.searchPlaces(
         query,
         language: 'vi',
       );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:mapbox_gl/mapbox_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -39,7 +40,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _error;
   bool _goongTilesAdded = false;
   Symbol? _userLocationSymbol;
+  Circle? _userLocationCircle;
   static const bool _enableGoongOverlay = false;
+  bool _customIconsLoaded = false;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
@@ -191,40 +194,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final parking = _nearbyParking[i];
       
       try {
+        // First add subtle halo circle
+        // Removed halo circle for cleaner look
+
+        // Then add the green pin on top
         final symbol = await _mapController!.addSymbol(
           SymbolOptions(
             geometry: LatLng(parking.latitude, parking.longitude),
-            // Render a pink "P" label at the location
-            textField: 'P',
-            textSize: 16.0,
-            textColor: '#FF2D87',
-            textHaloColor: '#FFFFFF',
-            textHaloWidth: 2.0,
-            textOffset: const Offset(0, 0),
-            textAnchor: 'center',
+            iconImage: _customIconsLoaded ? 'pin-green' : 'marker-15',
+            iconColor: _customIconsLoaded ? null : '#2E7D32', // Green tint only when default sprite
+            iconSize: _customIconsLoaded ? 0.9 : 1.3,
           ),
         );
-        
+
         _markers.add(symbol);
         _symbolIdToParking[symbol.id] = parking;
         debugPrint('Added marker for ${parking.name} at ${parking.latitude}, ${parking.longitude}');
-        // Add a visible circle so the location is always shown even if sprite icons are missing
-        try {
-          final circle = await _mapController!.addCircle(
-            CircleOptions(
-              geometry: LatLng(parking.latitude, parking.longitude),
-              circleRadius: 8.0,
-              circleColor: '#FFE0EC',
-              circleStrokeColor: '#FF2D87',
-              circleStrokeWidth: 1.0,
-            ),
-          );
-          _circles.add(circle);
-          _circleIdToParking[circle.id] = parking;
-        } catch (circleAddError) {
-          debugPrint('Non-fatal: could not add circle for ${parking.name}: $circleAddError');
-        }
-        
+
       } catch (e) {
         debugPrint('Error adding symbol for ${parking.name}: $e');
         
@@ -233,13 +219,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final symbol = await _mapController!.addSymbol(
             SymbolOptions(
               geometry: LatLng(parking.latitude, parking.longitude),
-              textField: 'P',
-              textSize: 16.0,
-              textColor: '#FF2D87',
-              textHaloColor: '#FFFFFF',
-              textHaloWidth: 2.0,
-              textOffset: const Offset(0, 0),
-              textAnchor: 'center',
+              iconImage: _customIconsLoaded ? 'pin-green' : 'marker-15',
+              iconColor: _customIconsLoaded ? null : '#2E7D32',
+              iconSize: _customIconsLoaded ? 1.0 : 1.6,
             ),
           );
           _markers.add(symbol);
@@ -247,23 +229,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           debugPrint('Added fallback marker for ${parking.name}');
         } catch (fallbackError) {
           debugPrint('Fallback marker also failed for ${parking.name}: $fallbackError');
-          // Fallback 2: draw a circle so something is visible
-          try {
-            final circle = await _mapController!.addCircle(
-              CircleOptions(
-                geometry: LatLng(parking.latitude, parking.longitude),
-                circleRadius: 8.0,
-                circleColor: '#FFE0EC',
-                circleStrokeColor: '#FF2D87',
-                circleStrokeWidth: 1.0,
-              ),
-            );
-            _circles.add(circle);
-            _circleIdToParking[circle.id] = parking;
-            debugPrint('Added circle marker for ${parking.name}');
-          } catch (circleError) {
-            debugPrint('Circle marker also failed for ${parking.name}: $circleError');
-          }
+          // No circle fallback; skip if symbol fails
         }
       }
     }
@@ -286,14 +252,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await _mapController!.removeSymbol(_userLocationSymbol!);
         _userLocationSymbol = null;
       }
+      if (_userLocationCircle != null) {
+        await _mapController!.removeCircle(_userLocationCircle!);
+        _userLocationCircle = null;
+      }
 
       // Add new user location symbol
       _userLocationSymbol = await _mapController!.addSymbol(
         SymbolOptions(
           geometry: userLocation,
-          iconImage: 'marker-15',
-          iconColor: '#1E88E5',
-          iconSize: 1.5,
+          iconImage: _customIconsLoaded ? 'pin-blue' : 'marker-15',
+          iconColor: _customIconsLoaded ? null : '#1E88E5',
+          iconSize: _customIconsLoaded ? 1.0 : 1.5,
         ),
       );
       
@@ -316,6 +286,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         debugPrint('Fallback user location symbol also failed: $fallbackError');
       }
     }
+
+    // Removed blue halo circle
   }
 
   Future<void> _fitCameraToAllPoints() async {
@@ -514,6 +486,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       debugPrint('Map style loaded');
                       
                       try {
+                        // Load custom teardrop icons if available in assets
+                        try {
+                          final greenData = await rootBundle.load('assets/images/pin_green.png');
+                          final blueData = await rootBundle.load('assets/images/pin_blue.png');
+                          // Register as non-SDF images to avoid black tinting/artifacts when zooming
+                          await _mapController!.addImage('pin-green', greenData.buffer.asUint8List(), false);
+                          await _mapController!.addImage('pin-blue', blueData.buffer.asUint8List(), false);
+                          _customIconsLoaded = true;
+                          debugPrint('Custom pin icons loaded');
+                        } catch (iconErr) {
+                          _customIconsLoaded = false;
+                          debugPrint('Custom icons not loaded (fallback to defaults): $iconErr');
+                        }
                         // Add custom tile source if needed
                         if (_enableGoongOverlay && !_goongTilesAdded && _mapController != null) {
                           final tilesUrl = 'https://tile.goong.io/maps/{z}/{x}/{y}.png?api_key=${ApiConfig.goongMapsApiKey}';

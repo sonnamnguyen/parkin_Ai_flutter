@@ -6,8 +6,6 @@ import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/place_model.dart';
 import '../../../core/services/goong_places_service.dart';
 import '../../../core/services/parking_lot_service.dart';
-import '../../widgets/common/custom_text_field.dart';
-import '../../../data/models/parking_hours_model.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -22,11 +20,10 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounceTimer;
   final ParkingLotService _parkingLotService = ParkingLotService();
   
-  List<String> _recentSearches = [
-    'Bãi xe Lê Văn Tám',
-    'Bãi xe Bến Thành',
-    'Bãi xe Quận 1',
-  ];
+  // Store current location passed from home screen
+  Map<String, double>? _currentLocation;
+  
+  List<String> _recentSearches = [];
   
   List<PlacePrediction> _placePredictions = [];
   List<PlaceModel> _searchResults = [];
@@ -35,82 +32,20 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _showSuggestions = false;
   String _sessionToken = GoongPlacesService.generateSessionToken();
 
-  final List<ParkingLot> _nearbyParking = [
-    ParkingLot(
-      id: 1,
-      name: 'Bãi xe Lê Văn Tám',
-      address: 'Cần 29 nhà',
-      latitude: 10.8231,
-      longitude: 106.6297,
-      ownerId: 1,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 50,
-      availableSlots: 12,
-      pricePerHour: 15000,
-      description: 'Bãi đậu xe an toàn, tiện lợi',
-      openTime: '06:00',
-      closeTime: '22:00',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.5,
-      reviewCount: 127,
-      amenities: ['CCTV', 'Bảo vệ 24/7'],
-      operatingHours: ParkingHours(
-        monday: '06:00 - 22:00',
-        tuesday: '06:00 - 22:00',
-        wednesday: '06:00 - 22:00',
-        thursday: '06:00 - 22:00',
-        friday: '06:00 - 22:00',
-        saturday: '06:00 - 22:00',
-        sunday: '06:00 - 22:00',
-      ),
-      isOpen: true,
-      distance: 500,
-    ),
-    ParkingLot(
-      id: 2,
-      name: 'Bãi xe Bến Thành',
-      address: 'Cần 10 nhà',
-      latitude: 10.8231,
-      longitude: 106.6297,
-      ownerId: 2,
-      isVerified: true,
-      isActive: true,
-      totalSlots: 30,
-      availableSlots: 5,
-      pricePerHour: 20000,
-      description: 'Gần chợ Bến Thành',
-      openTime: '06:00',
-      closeTime: '22:00',
-      imageUrl: '',
-      images: [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      rating: 4.1,
-      reviewCount: 89,
-      amenities: ['CCTV'],
-      operatingHours: ParkingHours(
-        monday: '06:00 - 22:00',
-        tuesday: '06:00 - 22:00',
-        wednesday: '06:00 - 22:00',
-        thursday: '06:00 - 22:00',
-        friday: '06:00 - 22:00',
-        saturday: '06:00 - 22:00',
-        sunday: '06:00 - 22:00',
-      ),
-      isOpen: true,
-      distance: 750,
-    ),
-  ];
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
     _searchFocusNode.addListener(_onFocusChanged);
+    
+    // Get current location from arguments
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      if (args != null && args['currentLocation'] != null) {
+        _currentLocation = args['currentLocation'] as Map<String, double>;
+      }
+    });
   }
 
   @override
@@ -120,6 +55,13 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     _debounceTimer?.cancel();
+    
+    // Clear all search state
+    _placePredictions.clear();
+    _searchResults.clear();
+    _showSuggestions = false;
+    _isSearching = false;
+    
     super.dispose();
   }
 
@@ -153,8 +95,21 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
+      // Use current location to bias search results if available
+      String? locationParam;
+      if (_currentLocation != null) {
+        locationParam = '${_currentLocation!['lat']},${_currentLocation!['lng']}';
+        debugPrint('Using current location biasing for autocomplete: $locationParam');
+      } else {
+        // Fallback to Ho Chi Minh City center for better Vietnamese results
+        locationParam = '10.8231,106.6297';
+        debugPrint('Using HCM City center for autocomplete biasing: $locationParam');
+      }
+      
       final predictions = await GoongPlacesService.getPlaceAutocomplete(
         query,
+        location: locationParam,
+        radius: 50000, // 50km radius for better local results
         language: 'vi',
       );
 
@@ -184,6 +139,9 @@ class _SearchScreenState extends State<SearchScreen> {
       );
 
       if (placeDetails != null) {
+        debugPrint('Place details received: ${placeDetails.name}');
+        debugPrint('Place coordinates: ${placeDetails.latitude}, ${placeDetails.longitude}');
+        
         // Update place result
         setState(() {
           _searchResults = [placeDetails];
@@ -231,12 +189,85 @@ class _SearchScreenState extends State<SearchScreen> {
             }
           });
         }
+        
+        // Return selected location to home screen
+        _returnLocationToHome(placeDetails);
       }
     } catch (e) {
       setState(() {
         _isSearching = false;
       });
       print('Error getting place details: $e');
+    }
+  }
+
+  void _returnLocationToHome(PlaceModel placeDetails) {
+    debugPrint('Returning location to home: ${placeDetails.name}');
+    debugPrint('Latitude: ${placeDetails.latitude}, Longitude: ${placeDetails.longitude}');
+    
+    // Clear search state before navigating back
+    _placePredictions.clear();
+    _searchResults.clear();
+    _showSuggestions = false;
+    _isSearching = false;
+    
+    if (placeDetails.latitude != null && placeDetails.longitude != null) {
+      // Validate coordinates are reasonable (within Vietnam bounds approximately)
+      final lat = placeDetails.latitude!;
+      final lng = placeDetails.longitude!;
+      
+      // More inclusive bounds for global coordinates
+      if (lat >= -90.0 && lat <= 90.0 && lng >= -180.0 && lng <= 180.0) {
+        debugPrint('Valid coordinates - Navigating back with: $lat, $lng');
+        debugPrint('Place name: ${placeDetails.name}');
+        debugPrint('Address: ${placeDetails.formattedAddress}');
+        Navigator.of(context).pop({
+          'selectedLocation': {
+            'lat': lat,
+            'lng': lng,
+          },
+          'placeName': placeDetails.name,
+          'address': placeDetails.formattedAddress,
+        });
+      } else {
+        debugPrint('ERROR: Invalid coordinates: lat=$lat, lng=$lng');
+        debugPrint('Coordinates must be: lat between -90 and 90, lng between -180 and 180');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tọa độ không hợp lệ cho địa điểm này')),
+        );
+      }
+    } else {
+      debugPrint('ERROR: Place details missing coordinates!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không thể lấy tọa độ cho địa điểm này')),
+      );
+    }
+  }
+
+  void _navigateToParkingDetail(ParkingLot parking) {
+    Navigator.of(context).pushNamed(
+      '/parking-detail',
+      arguments: parking,
+    );
+  }
+
+  void _useCurrentLocation() {
+    if (_currentLocation != null) {
+      // Clear search state before navigating back
+      _placePredictions.clear();
+      _searchResults.clear();
+      _showSuggestions = false;
+      _isSearching = false;
+      
+      Navigator.of(context).pop({
+        'selectedLocation': _currentLocation,
+        'placeName': 'Vị trí hiện tại',
+        'address': 'Sử dụng vị trí hiện tại',
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không thể lấy vị trí hiện tại')),
+      );
     }
   }
 
@@ -249,8 +280,21 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
+      // Use current location to bias search results if available
+      String? locationParam;
+      if (_currentLocation != null) {
+        locationParam = '${_currentLocation!['lat']},${_currentLocation!['lng']}';
+        debugPrint('Using current location biasing for text search: $locationParam');
+      } else {
+        // Fallback to Ho Chi Minh City center for better Vietnamese results
+        locationParam = '10.8231,106.6297';
+        debugPrint('Using HCM City center for text search biasing: $locationParam');
+      }
+      
       final results = await GoongPlacesService.searchPlaces(
         query,
+        location: locationParam,
+        radius: 50000, // 50km radius for better local results
         language: 'vi',
       );
 
@@ -274,7 +318,14 @@ class _SearchScreenState extends State<SearchScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            // Clear search state before navigating back
+            _placePredictions.clear();
+            _searchResults.clear();
+            _showSuggestions = false;
+            _isSearching = false;
+            Navigator.of(context).pop();
+          },
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.darkGrey),
         ),
         title: Text(
@@ -294,16 +345,16 @@ class _SearchScreenState extends State<SearchScreen> {
       body: Stack(
         children: [
           Column(
-            children: [
-              // Search Bar
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: TextField(
-                  controller: _searchController,
+        children: [
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _searchController,
                   focusNode: _searchFocusNode,
-                  decoration: InputDecoration(
-                    hintText: 'Tìm điểm đến của bạn',
-                    prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+              decoration: InputDecoration(
+                hintText: 'Tìm điểm đến của bạn',
+                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
                     suffixIcon: _isSearching
                         ? const SizedBox(
                             width: 20,
@@ -329,39 +380,45 @@ class _SearchScreenState extends State<SearchScreen> {
                                 icon: const Icon(Icons.clear, color: AppColors.textSecondary),
                               )
                             : null,
-                    filled: true,
-                    fillColor: AppColors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(25),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                  ),
+                filled: true,
+                fillColor: AppColors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+              ),
                   onSubmitted: (value) {
                     if (value.isNotEmpty) {
                       _performTextSearch(value);
                     }
-                  },
-                ),
-              ),
+              },
+            ),
+          ),
 
-              Expanded(
+          Expanded(
                 child: _searchResults.isNotEmpty
                     ? _buildSearchResults()
                     : SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Recent Searches
-                            if (_recentSearches.isNotEmpty) ...[
-                              _buildSectionHeader('Tìm kiếm gần đây'),
-                              ..._recentSearches.map((search) => _buildRecentSearchItem(search)),
-                              const SizedBox(height: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                            // Current Location Option
+                            if (_currentLocation != null) ...[
+                              _buildCurrentLocationItem(),
+                              const SizedBox(height: 16),
                             ],
+                            
+                  // Recent Searches
+                  if (_recentSearches.isNotEmpty) ...[
+                    _buildSectionHeader('Tìm kiếm gần đây'),
+                    ..._recentSearches.map((search) => _buildRecentSearchItem(search)),
+                    const SizedBox(height: 24),
+                  ],
 
                             // Nearby Parking (from selected place)
                             if (_nearbyLots.isNotEmpty) ...[
@@ -369,16 +426,16 @@ class _SearchScreenState extends State<SearchScreen> {
                               ..._nearbyLots.map((p) => _buildParkingItem(p)),
                               const SizedBox(height: 24),
                             ],
-                            
-                            const SizedBox(height: 24),
-                            
-                            // Suggestions Section  
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Suggestions Section  
                             _buildSectionHeader('GỢI Ý'),
-                            _buildCategoryGrid(),
-                          ],
-                        ),
-                      ),
+                  _buildCategoryGrid(),
+                ],
               ),
+            ),
+          ),
             ],
           ),
           
@@ -607,6 +664,68 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildCurrentLocationItem() {
+    return GestureDetector(
+      onTap: _useCurrentLocation,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.my_location,
+                color: AppColors.primary,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Sử dụng vị trí hiện tại',
+                    style: AppThemes.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    'Tìm bãi đậu xe gần bạn',
+                    style: AppThemes.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              color: AppColors.textSecondary,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRecentSearchItem(String search) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -639,7 +758,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildParkingItem(ParkingLot parking) {
-    return Container(
+    return GestureDetector(
+      onTap: () => _navigateToParkingDetail(parking),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -712,6 +833,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

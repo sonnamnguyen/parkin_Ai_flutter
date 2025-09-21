@@ -52,11 +52,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation();
+    
+    // Add listener to search controller to update UI
+    _searchController.addListener(() {
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchController.removeListener(() {});
     _searchController.dispose();
     _isMapReady = false;
     _symbolIdToParking.clear();
@@ -155,6 +161,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isLoadingParkingLots = false;
       });
       debugPrint('Error loading parking lots: $e');
+    }
+  }
+
+  Future<void> _loadParkingLotsAtLocation(LatLng location) async {
+    debugPrint('Home: loading parking lots at selected location lat=${location.latitude}, lng=${location.longitude}');
+
+    setState(() {
+      _isLoadingParkingLots = true;
+      _error = null;
+    });
+
+    try {
+      final response = await _parkingLotService.getNearbyParkingLots(
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radius: 5.0,
+        page: 1,
+        pageSize: 20,
+      );
+
+      setState(() {
+        _nearbyParking = response.list;
+        _isLoadingParkingLots = false;
+      });
+
+      debugPrint('Home: received ${response.list.length} lots for selected location');
+      if (!mounted || !_isMapReady || _mapController == null) return;
+      
+      // Clear existing parking markers before adding new ones
+      await _clearParkingMarkers();
+      await _createMarkersFromParkingLots();
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoadingParkingLots = false;
+      });
+      debugPrint('Error loading parking lots at selected location: $e');
+    }
+  }
+
+  Future<void> _addSearchedLocationMarker(LatLng location, String name) async {
+    if (_mapController == null) return;
+    
+    try {
+      // Add a distinctive marker for the searched location
+      final symbol = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: location,
+          iconImage: 'custom-marker', // Use a custom icon
+          iconSize: 1.5,
+          textField: name,
+          textSize: 12,
+          textColor: '#FFFFFF',
+          textHaloColor: '#000000',
+          textHaloWidth: 1,
+          textOffset: const Offset(0, 2),
+        ),
+      );
+      
+      debugPrint('Added searched location marker: $name at ${location.latitude}, ${location.longitude}');
+    } catch (e) {
+      debugPrint('Error adding searched location marker: $e');
     }
   }
 
@@ -766,10 +834,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Expanded(
             child: TextField(
               controller: _searchController,
+              readOnly: true, // Make it read-only to prevent showing suggestions
               decoration: InputDecoration(
                 hintText: AppStrings.searchLocation,
                 prefixIcon:
                     const Icon(Icons.search, color: AppColors.textSecondary),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.clear, color: AppColors.textSecondary),
+                      )
+                    : null,
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -777,10 +855,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 hintStyle: AppThemes.bodyMedium,
               ),
-              onTap: () {
-                Navigator.of(context).pushNamed('/search');
+              onTap: () async {
+                // Pass current location to search screen if available
+                final result = await Navigator.of(context).pushNamed('/search', arguments: {
+                  'currentLocation': _currentPosition != null 
+                    ? {'lat': _currentPosition!.latitude, 'lng': _currentPosition!.longitude}
+                    : null,
+                });
+                
+                // Handle result if user selected a location
+                debugPrint('Search result received: $result');
+                if (result != null && result is Map<String, dynamic>) {
+                  final selectedLocation = result['selectedLocation'] as Map<String, double>?;
+                  final placeName = result['placeName'] as String?;
+                  debugPrint('Selected location: $selectedLocation');
+                  debugPrint('Place name: $placeName');
+                  debugPrint('Map controller available: ${_mapController != null}');
+                  
+                  // Update search field with selected location name
+                  if (placeName != null) {
+                    _searchController.text = placeName;
+                  }
+                  
+                  if (selectedLocation != null && _mapController != null) {
+                    debugPrint('Selected location data: $selectedLocation');
+                    debugPrint('Latitude: ${selectedLocation['lat']} (type: ${selectedLocation['lat'].runtimeType})');
+                    debugPrint('Longitude: ${selectedLocation['lng']} (type: ${selectedLocation['lng'].runtimeType})');
+                    debugPrint('Current map position: ${_currentPosition?.latitude}, ${_currentPosition?.longitude}');
+                    debugPrint('Updating map to: ${selectedLocation['lat']}, ${selectedLocation['lng']}');
+                    
+                    // Update map to show selected location
+                    try {
+                      final targetLatLng = LatLng(selectedLocation['lat']!, selectedLocation['lng']!);
+                      debugPrint('Moving map to: ${targetLatLng.latitude}, ${targetLatLng.longitude}');
+                      debugPrint('Map controller ready: ${_mapController != null}');
+                      debugPrint('Map ready: $_isMapReady');
+                      
+                      // Wait a bit to ensure map is fully ready
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      
+                      // Force update the map position
+                      await _mapController!.animateCamera(
+                        CameraUpdate.newLatLngZoom(
+                          targetLatLng,
+                          12, // Reduced zoom level for better overview
+                        ),
+                      );
+                      
+                      debugPrint('Map camera updated successfully to searched location');
+                      
+                      // Add a marker at the searched location for visual confirmation
+                      await _addSearchedLocationMarker(targetLatLng, placeName ?? 'Searched Location');
+                    } catch (e) {
+                      debugPrint('Error updating map camera: $e');
+                      // Fallback: just move to location without zoom
+                      final targetLatLng = LatLng(selectedLocation['lat']!, selectedLocation['lng']!);
+                      _mapController!.animateCamera(
+                        CameraUpdate.newLatLng(targetLatLng),
+                      );
+                      debugPrint('Map camera updated with fallback method');
+                    }
+                    
+                    // Load parking lots for the selected location
+                    await _loadParkingLotsAtLocation(
+                      LatLng(selectedLocation['lat']!, selectedLocation['lng']!),
+                    );
+                  } else {
+                    debugPrint('ERROR: Missing selectedLocation or mapController');
+                  }
+                } else {
+                  debugPrint('ERROR: No result or invalid result format');
+                }
               },
-              readOnly: true,
             ),
           ),
           IconButton(

@@ -44,15 +44,43 @@ class PlaceModel {
   }
 
   factory PlaceModel.fromGoongJson(Map<String, dynamic> json) {
+    print('PlaceModel parsing - Full JSON: $json');
+    
     final geometry = json['geometry'] as Map<String, dynamic>?;
     final location = geometry?['location'] as Map<String, dynamic>?;
+    
+    print('PlaceModel parsing - Geometry: $geometry');
+    print('PlaceModel parsing - Location: $location');
+    
+    // Try different possible coordinate formats
+    double? lat, lng;
+    
+    if (location != null) {
+      // Try Google Places format first
+      lat = location['lat']?.toDouble();
+      lng = location['lng']?.toDouble();
+      
+      // If not found, try alternative formats
+      if (lat == null || lng == null) {
+        lat = location['latitude']?.toDouble();
+        lng = location['longitude']?.toDouble();
+      }
+      
+      // If still not found, try direct geometry format
+      if (lat == null || lng == null) {
+        lat = geometry?['lat']?.toDouble();
+        lng = geometry?['lng']?.toDouble();
+      }
+    }
+    
+    print('PlaceModel parsing - Final coordinates: lat=$lat, lng=$lng');
     
     return PlaceModel(
       placeId: json['place_id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       formattedAddress: json['formatted_address'] as String? ?? '',
-      latitude: location?['lat']?.toDouble(),
-      longitude: location?['lng']?.toDouble(),
+      latitude: lat,
+      longitude: lng,
       photoReference: json['photos']?.isNotEmpty == true 
           ? json['photos'][0]['photo_reference'] as String?
           : null,

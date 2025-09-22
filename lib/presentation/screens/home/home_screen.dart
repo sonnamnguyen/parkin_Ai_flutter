@@ -12,6 +12,7 @@ import '../../../data/models/parking_lot_list_response_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../../data/models/parking_hours_model.dart';
 import '../../../core/services/parking_lot_service.dart';
+import '../../../core/services/directions_service.dart';
 import '../../../routes/app_routes.dart';
 import '../../../core/constants/api_config.dart';
 
@@ -25,6 +26,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final ParkingLotService _parkingLotService = ParkingLotService();
+  final DirectionsService _directionsService = const DirectionsService();
   bool _isAnalyzing = false;
   MapboxMapController? _mapController;
   Position? _currentPosition;
@@ -43,6 +45,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Circle? _userLocationCircle;
   static const bool _enableGoongOverlay = false;
   bool _customIconsLoaded = false;
+  // Search state
+  Symbol? _searchedLocationSymbol;
+  LatLng? _searchedLocation;
+  bool _isSearchActive = false;
+  // Route state
+  Line? _routeLine;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
@@ -105,7 +113,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('Current position: ${position.latitude}, ${position.longitude}');
 
       if (_isMapReady && _mapController != null) {
+        // Do not override camera if a search result is being shown
+        if (!_isSearchActive) {
         _updateMapLocation();
+        }
         await _renderUserLocationSymbol();
         await _loadNearbyParkingLots();
       }
@@ -122,6 +133,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
     }
+  }
+
+  Future<void> _drawRouteTo(LatLng destination) async {
+    if (_mapController == null) return;
+    if (_currentPosition == null) {
+      debugPrint('Cannot draw route: current location unknown');
+      return;
+    }
+    final origin = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    try {
+      final points = await _directionsService.getDrivingRoute(origin: origin, destination: destination);
+      if (_routeLine != null) {
+        await _mapController!.removeLine(_routeLine!);
+        _routeLine = null;
+      }
+      _routeLine = await _mapController!.addLine(
+        LineOptions(
+          geometry: points,
+          lineColor: '#1E88E5',
+          lineWidth: 5.0,
+          lineOpacity: 0.9,
+        ),
+      );
+      final bounds = _boundsFor(points);
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, top: 80, right: 80, bottom: 120, left: 80),
+      );
+    } catch (e) {
+      debugPrint('Failed to draw route: $e');
+    }
+  }
+
+  LatLngBounds _boundsFor(List<LatLng> points) {
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng));
   }
 
   Future<void> _loadNearbyParkingLots() async {
@@ -205,12 +260,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_mapController == null) return;
     
     try {
-      // Add a distinctive marker for the searched location
-      final symbol = await _mapController!.addSymbol(
+      // Remove previous searched symbol if any
+      if (_searchedLocationSymbol != null) {
+        await _mapController!.removeSymbol(_searchedLocationSymbol!);
+        _searchedLocationSymbol = null;
+      }
+
+      // Add a distinctive marker for the searched location (use built-in sprite to avoid missing asset)
+      _searchedLocationSymbol = await _mapController!.addSymbol(
         SymbolOptions(
           geometry: location,
-          iconImage: 'custom-marker', // Use a custom icon
-          iconSize: 1.5,
+          iconImage: 'marker-15',
+          iconSize: 1.6,
+          iconColor: '#D32F2F',
           textField: name,
           textSize: 12,
           textColor: '#FFFFFF',
@@ -219,7 +281,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           textOffset: const Offset(0, 2),
         ),
       );
-      
+
+      _searchedLocation = location;
+      _isSearchActive = true;
       debugPrint('Added searched location marker: $name at ${location.latitude}, ${location.longitude}');
     } catch (e) {
       debugPrint('Error adding searched location marker: $e');
@@ -237,6 +301,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await _mapController!.removeSymbol(symbol);
         }
       }
+      // Do NOT remove searched location symbol here
       // Clear circles
       for (final circle in _circles) {
         await _mapController!.removeCircle(circle);
@@ -302,7 +367,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
     debugPrint('Total markers added: ${_symbolIdToParking.length}');
-    await _fitCameraToAllPoints();
+    // When a search is active, keep the camera focused on the searched point
+    if (!_isSearchActive) {
+      await _fitCameraToAllPoints();
+    }
   }
 
   Future<void> _renderUserLocationSymbol() async {
@@ -673,6 +741,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: _buildThunderButton(),
                 ),
 
+                // Directions button for searched place
+                if (_searchedLocation != null)
+                  Positioned(
+                    bottom: 146,
+                  right: 16,
+                    child: FloatingActionButton(
+                      heroTag: 'route_to_search',
+                      onPressed: () {
+                        _drawRouteTo(_searchedLocation!);
+                      },
+                      backgroundColor: AppColors.primary,
+                      child: const Icon(Icons.directions),
+                    ),
+                ),
+
                 // Search Bar at Bottom
                 Positioned(
                   bottom: 16,
@@ -906,6 +989,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       
                       // Add a marker at the searched location for visual confirmation
                       await _addSearchedLocationMarker(targetLatLng, placeName ?? 'Searched Location');
+                      _isSearchActive = true;
+                      _searchedLocation = targetLatLng;
                     } catch (e) {
                       debugPrint('Error updating map camera: $e');
                       // Fallback: just move to location without zoom
@@ -1022,6 +1107,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Navigate (route) button
+                InkWell(
+                  onTap: () {
+                    _drawRouteTo(LatLng(parking.latitude, parking.longitude));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.directions,
+                      color: AppColors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -1033,6 +1140,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 color: AppColors.white,
                 size: 16,
               ),
+                ),
+              ],
             ),
           ],
         ),

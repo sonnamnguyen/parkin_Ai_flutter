@@ -38,6 +38,7 @@ class GoongPlacesService {
       }
 
       final uri = Uri.parse('$_baseUrl/AutoComplete').replace(queryParameters: queryParams);
+      print('Goong Autocomplete URL: $uri');
       final response = await http.get(uri);
 
       if (response.statusCode == 200) {
@@ -85,14 +86,19 @@ class GoongPlacesService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('Goong Places API Response: $data');
+        
         if (data['status'] == 'OK') {
-          return PlaceModel.fromGoongJson(data['result']);
+          final result = PlaceModel.fromGoongJson(data['result']);
+          print('Parsed place details: ${result.name} at ${result.latitude}, ${result.longitude}');
+          return result;
         } else {
           print('Goong Places API Error: ${data['status']} - ${data['error_message']}');
           return null;
         }
       } else {
         print('HTTP Error: ${response.statusCode}');
+        print('Response body: ${response.body}');
         return null;
       }
     } catch (e) {
@@ -131,6 +137,7 @@ class GoongPlacesService {
       }
 
       final uri = Uri.parse('$_baseUrl/TextSearch').replace(queryParameters: queryParams);
+      print('Goong Text Search URL: $uri');
       final response = await http.get(uri);
 
       if (response.statusCode == 200) {

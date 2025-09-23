@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/services/wallet_service.dart';
+import '../../../data/models/wallet_transaction_model.dart';
 import '../../widgets/common/custom_button.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -11,31 +13,90 @@ class WalletScreen extends StatefulWidget {
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  final double _balance = 125000.0;
+  final WalletService _walletService = WalletService();
   
-  final List<Map<String, dynamic>> _transactions = [
-    {
-      'type': 'parking',
-      'amount': -20000.0,
-      'description': 'Bãi đậu xe Lê Văn Tám',
-      'date': DateTime.now().subtract(const Duration(hours: 2)),
-      'status': 'completed',
-    },
-    {
-      'type': 'topup',
-      'amount': 100000.0,
-      'description': 'Nạp tiền từ thẻ Visa',
-      'date': DateTime.now().subtract(const Duration(days: 1)),
-      'status': 'completed',
-    },
-    {
-      'type': 'parking',
-      'amount': -15000.0,
-      'description': 'Bãi đậu xe Bến Thành',
-      'date': DateTime.now().subtract(const Duration(days: 2)),
-      'status': 'completed',
-    },
-  ];
+  double _balance = 0.0;
+  List<WalletTransaction> _transactions = [];
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  int _currentPage = 1;
+  bool _hasMoreData = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWalletData();
+  }
+
+  Future<void> _loadWalletData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Load balance and first page of transactions
+      final balance = await _walletService.getWalletBalance();
+      final transactionResponse = await _walletService.getWalletTransactions(
+        page: 1,
+        pageSize: 5, // Show only 5 recent transactions on main screen
+      );
+
+      setState(() {
+        _balance = balance;
+        _transactions = transactionResponse.transactions;
+        _currentPage = 1;
+        _hasMoreData = transactionResponse.hasNextPage;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi tải dữ liệu: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadMoreTransactions() async {
+    if (_isLoadingMore || !_hasMoreData) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final nextPage = _currentPage + 1;
+      final transactionResponse = await _walletService.getWalletTransactions(
+        page: nextPage,
+        pageSize: 5,
+      );
+
+      setState(() {
+        _transactions.addAll(transactionResponse.transactions);
+        _currentPage = nextPage;
+        _hasMoreData = transactionResponse.hasNextPage;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingMore = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi tải thêm dữ liệu: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,25 +120,27 @@ class _WalletScreenState extends State<WalletScreen> {
         actions: [
           IconButton(
             onPressed: () {
-              // TODO: Navigate to transaction history
+              Navigator.of(context).pushNamed('/wallet-history');
             },
             icon: const Icon(Icons.history, color: AppColors.darkGrey),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildBalanceCard(),
-            const SizedBox(height: 24),
-            _buildQuickActions(),
-            const SizedBox(height: 24),
-            _buildRecentTransactions(),
-          ],
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildBalanceCard(),
+                  const SizedBox(height: 24),
+                  _buildQuickActions(),
+                  const SizedBox(height: 24),
+                  _buildRecentTransactions(),
+                ],
+              ),
+            ),
     );
   }
 
@@ -245,7 +308,7 @@ class _WalletScreenState extends State<WalletScreen> {
             const Spacer(),
             TextButton(
               onPressed: () {
-                // TODO: Navigate to all transactions
+                Navigator.of(context).pushNamed('/wallet-history');
               },
               child: Text(
                 'Xem tất cả',
@@ -259,16 +322,28 @@ class _WalletScreenState extends State<WalletScreen> {
         ),
         const SizedBox(height: 16),
         ..._transactions.map((transaction) => _buildTransactionItem(transaction)),
+        if (_hasMoreData && _transactions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: _isLoadingMore
+                  ? const CircularProgressIndicator()
+                  : TextButton(
+                      onPressed: _loadMoreTransactions,
+                      child: const Text('Tải thêm'),
+                    ),
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final isIncome = transaction['amount'] > 0;
-    final amount = transaction['amount'] as double;
-    final description = transaction['description'] as String;
-    final date = transaction['date'] as DateTime;
-    final type = transaction['type'] as String;
+  Widget _buildTransactionItem(WalletTransaction transaction) {
+    final isIncome = transaction.isIncome;
+    final amount = transaction.amount;
+    final description = transaction.description;
+    final date = transaction.createdAt;
+    final type = transaction.type;
 
     IconData getIcon() {
       switch (type) {

@@ -55,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Route state
   Line? _routeLine;
   LatLng? _lastRouteTarget;
+  // Session state
+  bool _showLogoutButton = false;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
@@ -164,6 +166,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _routeLine = null;
       _lastRouteTarget = null;
     }
+  }
+
+  bool _isSessionError(String error) {
+    final errorLower = error.toLowerCase();
+    return errorLower.contains('401') || 
+           errorLower.contains('403') || 
+           errorLower.contains('unauthorized') ||
+           errorLower.contains('phiên đăng nhập đã hết hạn') ||
+           errorLower.contains('session') ||
+           errorLower.contains('expired') ||
+           errorLower.contains('token') ||
+           errorLower.contains('hết hạn');
+  }
+
+  void _handleLogout() {
+    // Clear session state
+    setState(() {
+      _showLogoutButton = false;
+    });
+    
+    // Navigate to login screen or clear auth state
+    // You can customize this based on your auth flow
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
   void _ensurePositionStream() {
@@ -291,6 +316,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _error = e.toString();
         _isLoadingParkingLots = false;
+        // Check if it's a session/token error
+        if (_isSessionError(e.toString())) {
+          _showLogoutButton = true;
+        }
       });
       debugPrint('Error loading parking lots: $e');
     }
@@ -328,6 +357,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _error = e.toString();
         _isLoadingParkingLots = false;
+        // Check if it's a session/token error
+        if (_isSessionError(e.toString())) {
+          _showLogoutButton = true;
+        }
       });
       debugPrint('Error loading parking lots at selected location: $e');
     }
@@ -886,6 +919,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         SizedBox(width: 8),
                         Text('Đang tải bãi đậu xe...'),
                       ],
+                    ),
+                  ),
+
+                // Logout button overlay (when session expired)
+                if (_showLogoutButton)
+                  Positioned(
+                    top: 20,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.error,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.logout,
+                            color: AppColors.white,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: _handleLogout,
+                            child: const Text(
+                              'Đăng xuất',
+                              style: TextStyle(
+                                color: AppColors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],

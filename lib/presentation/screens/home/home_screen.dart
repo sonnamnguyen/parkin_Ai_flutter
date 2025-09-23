@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:mapbox_gl/mapbox_gl.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
@@ -15,6 +16,7 @@ import '../../../core/services/parking_lot_service.dart';
 import '../../../core/services/directions_service.dart';
 import '../../../routes/app_routes.dart';
 import '../../../core/constants/api_config.dart';
+// Using PNG raster for car icon; if you add assets/images/car.png it will be used
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,16 +46,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Symbol? _userLocationSymbol;
   Circle? _userLocationCircle;
   static const bool _enableGoongOverlay = false;
-  bool _customIconsLoaded = false;
+  bool _customIconsLoaded = false; // pins loaded
+  bool _carIconLoaded = false;
   // Search state
   Symbol? _searchedLocationSymbol;
   LatLng? _searchedLocation;
   bool _isSearchActive = false;
   // Route state
   Line? _routeLine;
+  LatLng? _lastRouteTarget;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
+  
+  // Live location subscription
+  StreamSubscription<Position>? _positionSub;
   
   @override
   void initState() {
@@ -61,8 +68,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation();
     
-    // Add listener to search controller to update UI
+    // Add listener to search controller to update UI and clear visuals when empty
     _searchController.addListener(() {
+      final hasText = _searchController.text.trim().isNotEmpty;
+      if (!hasText) {
+        _clearSearchVisuals();
+      }
       setState(() {});
     });
   }
@@ -72,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.removeListener(() {});
     _searchController.dispose();
+    _positionSub?.cancel();
     _isMapReady = false;
     _symbolIdToParking.clear();
     _mapController = null;
@@ -117,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (!_isSearchActive) {
         _updateMapLocation();
         }
-        await _renderUserLocationSymbol();
+        await _renderUserLocation();
         await _loadNearbyParkingLots();
       }
     } catch (e) {
@@ -133,6 +145,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
     }
+  }
+
+  Future<void> _clearSearchVisuals() async {
+    // Remove searched marker and route when search is cleared
+    if (_mapController != null && _searchedLocationSymbol != null) {
+      try {
+        await _mapController!.removeSymbol(_searchedLocationSymbol!);
+      } catch (_) {}
+      _searchedLocationSymbol = null;
+    }
+    _searchedLocation = null;
+    _isSearchActive = false;
+    if (_mapController != null && _routeLine != null) {
+      try {
+        await _mapController!.removeLine(_routeLine!);
+      } catch (_) {}
+      _routeLine = null;
+      _lastRouteTarget = null;
+    }
+  }
+
+  void _ensurePositionStream() {
+    _positionSub ??= Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 1,
+      ),
+    ).listen((pos) async {
+      _currentPosition = pos;
+      if (_isMapReady && _mapController != null) {
+        try {
+          if (_userLocationSymbol != null) {
+            await _mapController!.updateSymbol(
+              _userLocationSymbol!,
+              SymbolOptions(
+                geometry: LatLng(pos.latitude, pos.longitude),
+                iconRotate: pos.heading,
+              ),
+            );
+          } else {
+            await _renderUserLocation();
+          }
+        } catch (_) {}
+      }
+    }, onError: (e) {
+      debugPrint('Position stream error: $e');
+    });
   }
 
   Future<void> _drawRouteTo(LatLng destination) async {
@@ -160,9 +219,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _mapController!.animateCamera(
         CameraUpdate.newLatLngBounds(bounds, top: 80, right: 80, bottom: 120, left: 80),
       );
+      _lastRouteTarget = destination;
     } catch (e) {
       debugPrint('Failed to draw route: $e');
     }
+  }
+
+  Future<void> _toggleRouteTo(LatLng destination) async {
+    // If a route exists to the same destination, remove it (toggle off)
+    if (_routeLine != null && _lastRouteTarget != null) {
+      final same = (destination.latitude - _lastRouteTarget!.latitude).abs() < 1e-6 &&
+                   (destination.longitude - _lastRouteTarget!.longitude).abs() < 1e-6;
+      if (same) {
+        try {
+          await _mapController!.removeLine(_routeLine!);
+        } catch (_) {}
+        _routeLine = null;
+        _lastRouteTarget = null;
+        return;
+      }
+    }
+    await _drawRouteTo(destination);
   }
 
   LatLngBounds _boundsFor(List<LatLng> points) {
@@ -266,13 +343,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _searchedLocationSymbol = null;
       }
 
-      // Add a distinctive marker for the searched location (use built-in sprite to avoid missing asset)
+      // Add a distinctive marker for the searched location
       _searchedLocationSymbol = await _mapController!.addSymbol(
         SymbolOptions(
           geometry: location,
-          iconImage: 'marker-15',
-          iconSize: 1.6,
-          iconColor: '#D32F2F',
+          iconImage: _customIconsLoaded ? 'pin-blue' : 'marker-15',
+          iconSize: _customIconsLoaded ? 1.2 : 1.6,
+          iconColor: _customIconsLoaded ? null : '#1E88E5',
           textField: name,
           textSize: 12,
           textColor: '#FFFFFF',
@@ -373,14 +450,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _renderUserLocationSymbol() async {
+  Future<void> _renderUserLocation() async {
     if (!_isMapReady || _mapController == null || _currentPosition == null) {
       debugPrint('Cannot render user location: isMapReady=$_isMapReady, hasController=${_mapController != null}, hasPosition=${_currentPosition != null}');
       return;
     }
     
     final LatLng userLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
-    debugPrint('Rendering user location symbol at: ${userLocation.latitude}, ${userLocation.longitude}');
+    debugPrint('Rendering user car at: ${userLocation.latitude}, ${userLocation.longitude}');
     
     try {
       // Remove existing user location symbol if it exists
@@ -393,31 +470,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userLocationCircle = null;
       }
 
-      // Add new user location symbol
+      // Add car symbol at current location, rotated by heading
+      final double heading = (_currentPosition?.heading ?? 0.0).toDouble();
       _userLocationSymbol = await _mapController!.addSymbol(
         SymbolOptions(
           geometry: userLocation,
-          iconImage: _customIconsLoaded ? 'pin-blue' : 'marker-15',
-          iconColor: _customIconsLoaded ? null : '#1E88E5',
-          iconSize: _customIconsLoaded ? 1.0 : 1.5,
+          iconImage: _carIconLoaded ? 'car-icon' : 'marker-15',
+          iconSize: _carIconLoaded ? 1.0 : 1.2,
+          iconRotate: heading,
         ),
       );
-      
-      debugPrint('User location symbol added successfully');
+      _ensurePositionStream();
+      debugPrint('User car added successfully');
       
     } catch (e) {
-      debugPrint('Error rendering user location symbol: $e');
+      debugPrint('Error rendering user location: $e');
       
       // Try alternative approach with different styling
       try {
         _userLocationSymbol = await _mapController!.addSymbol(
           SymbolOptions(
             geometry: userLocation,
-            iconImage: 'marker-blue-15',
-            iconSize: 1.5,
+            iconImage: 'marker-15',
+            iconColor: '#1E88E5',
+            iconSize: 1.2,
           ),
         );
-        debugPrint('User location symbol added with fallback styling');
+        debugPrint('User location added with fallback styling');
       } catch (fallbackError) {
         debugPrint('Fallback user location symbol also failed: $fallbackError');
       }
@@ -623,17 +702,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       
                       try {
                         // Load custom teardrop icons if available in assets
+                        // Load pin images
                         try {
                           final greenData = await rootBundle.load('assets/images/pin_green.png');
                           final blueData = await rootBundle.load('assets/images/pin_blue.png');
-                          // Register as non-SDF images to avoid black tinting/artifacts when zooming
                           await _mapController!.addImage('pin-green', greenData.buffer.asUint8List(), false);
                           await _mapController!.addImage('pin-blue', blueData.buffer.asUint8List(), false);
                           _customIconsLoaded = true;
-                          debugPrint('Custom pin icons loaded');
-                        } catch (iconErr) {
+                          debugPrint('Pin icons loaded');
+                        } catch (e) {
                           _customIconsLoaded = false;
-                          debugPrint('Custom icons not loaded (fallback to defaults): $iconErr');
+                          debugPrint('Pin icons failed to load: $e');
+                        }
+
+                        // Load car icon separately (do not fail pins if car missing)
+                        try {
+                          final carPng = await rootBundle.load('assets/images/car.png');
+                          await _mapController!.addImage('car-icon', carPng.buffer.asUint8List(), false);
+                          _carIconLoaded = true;
+                          debugPrint('Car icon loaded');
+                        } catch (e) {
+                          _carIconLoaded = false;
+                          debugPrint('Car icon failed to load: $e');
                         }
                         // Add custom tile source if needed
                         if (_enableGoongOverlay && !_goongTilesAdded && _mapController != null) {
@@ -666,7 +756,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       
                       // Add markers when map is ready
                       if (_currentPosition != null && mounted) {
-                        await _renderUserLocationSymbol();
+                        await _renderUserLocation();
                         await _loadNearbyParkingLots();
                       } else {
                         // Load parking lots for HCM center if no current position
@@ -709,7 +799,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: GestureDetector(
                       onTap: () {
                         debugPrint('My location button tapped');
-                        _getCurrentLocation();
+                        _isSearchActive = false;
+                        if (_currentPosition != null && _mapController != null) {
+                          _mapController!.animateCamera(
+                            CameraUpdate.newLatLngZoom(
+                              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                              16,
+                            ),
+                          );
+                        } else {
+                          _getCurrentLocation();
+                        }
                       },
                       child: Container(
                         width: 56,
@@ -741,15 +841,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: _buildThunderButton(),
                 ),
 
-                // Directions button for searched place
-                if (_searchedLocation != null)
+                // Directions button for searched place (only when search has text)
+                if (_searchedLocation != null && _searchController.text.trim().isNotEmpty)
                   Positioned(
                     bottom: 146,
                   right: 16,
                     child: FloatingActionButton(
                       heroTag: 'route_to_search',
                       onPressed: () {
-                        _drawRouteTo(_searchedLocation!);
+                        _toggleRouteTo(_searchedLocation!);
                       },
                       backgroundColor: AppColors.primary,
                       child: const Icon(Icons.directions),
@@ -922,15 +1022,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 hintText: AppStrings.searchLocation,
                 prefixIcon:
                     const Icon(Icons.search, color: AppColors.textSecondary),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.clear, color: AppColors.textSecondary),
-                      )
-                    : null,
+                suffixIcon: IconButton(
+                  onPressed: () async {
+                    if (_searchController.text.isNotEmpty) {
+                      _searchController.clear();
+                      await _clearSearchVisuals();
+                    }
+                    setState(() {});
+                  },
+                  icon: Icon(
+                    _searchController.text.isNotEmpty ? Icons.clear : Icons.search,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -1113,7 +1217,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // Navigate (route) button
                 InkWell(
                   onTap: () {
-                    _drawRouteTo(LatLng(parking.latitude, parking.longitude));
+                    _toggleRouteTo(LatLng(parking.latitude, parking.longitude));
                   },
                   child: Container(
                     padding: const EdgeInsets.all(8),

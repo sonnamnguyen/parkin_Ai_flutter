@@ -78,7 +78,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: AppThemes.gradientBackground,
+        color: const Color(0xFF656CEE),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -87,74 +87,14 @@ class _SplashScreenState extends State<SplashScreen> {
                 // Top section with geometric lines (simplified version)
                 Expanded(
                   flex: 3,
-                  child: Stack(
-                    children: [
-                      // Geometric decoration
-                      Positioned(
-                        top: 50,
-                        right: 20,
-                        child: Container(
-                          width: 200,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.white.withOpacity(0.1),
-                          ),
-                        ),
+                  child: Center(
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Image.asset(
+                        'assets/images/begin.png',
+                        fit: BoxFit.fitWidth,
                       ),
-                      Positioned(
-                        top: 100,
-                        left: -50,
-                        child: Container(
-                          width: 150,
-                          height: 150,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.white.withOpacity(0.05),
-                          ),
-                        ),
-                      ),
-                      // Central parking illustration area
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Parking icon placeholder (you can replace with your car illustration)
-                            Container(
-                              width: 120,
-                              height: 120,
-                              decoration: BoxDecoration(
-                                color: AppColors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(30),
-                              ),
-                              child: const Icon(
-                                Icons.directions_car,
-                                size: 60,
-                                color: AppColors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            // Multiple small cars illustration placeholder
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: List.generate(3, (index) => Container(
-                                width: 40,
-                                height: 25,
-                                decoration: BoxDecoration(
-                                  color: AppColors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.directions_car,
-                                  size: 20,
-                                  color: AppColors.white,
-                                ),
-                              )),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 
@@ -189,15 +129,12 @@ class _SplashScreenState extends State<SplashScreen> {
                                 width: 40,
                                 height: 40,
                                 decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [AppColors.gradientStart, AppColors.gradientEnd],
-                                  ),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: const Icon(
-                                  Icons.local_parking,
-                                  color: AppColors.white,
-                                  size: 24,
+                                clipBehavior: Clip.antiAlias,
+                                child: Image.asset(
+                                  'assets/icons/icon_app.png',
+                                  fit: BoxFit.cover,
                                 ),
                               ),
                               const SizedBox(width: 12),

@@ -6,6 +6,8 @@ import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/place_model.dart';
 import '../../../core/services/goong_places_service.dart';
 import '../../../core/services/parking_lot_service.dart';
+import '../../../core/services/storage_service.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -19,6 +21,9 @@ class _SearchScreenState extends State<SearchScreen> {
   final FocusNode _searchFocusNode = FocusNode();
   Timer? _debounceTimer;
   final ParkingLotService _parkingLotService = ParkingLotService();
+  final StorageService _storage = StorageService();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _isListening = false;
   
   // Store current location passed from home screen
   Map<String, double>? _currentLocation;
@@ -28,10 +33,11 @@ class _SearchScreenState extends State<SearchScreen> {
   List<PlacePrediction> _placePredictions = [];
   List<PlaceModel> _searchResults = [];
   List<ParkingLot> _nearbyLots = [];
+  List<PlaceModel> _famousSpots = [];
   bool _isSearching = false;
   bool _showSuggestions = false;
+  bool _isLoadingFamous = false;
   String _sessionToken = GoongPlacesService.generateSessionToken();
-
 
   @override
   void initState() {
@@ -40,11 +46,18 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.addListener(_onFocusChanged);
     
     // Get current location from arguments
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       if (args != null && args['currentLocation'] != null) {
         _currentLocation = args['currentLocation'] as Map<String, double>;
       }
+      // Load recent searches from storage
+      final items = _storage.getRecentSearches();
+      setState(() {
+        _recentSearches = items.take(10).toList();
+      });
+      // Load famous spots near user
+      await _loadFamousSpotsNearUser();
     });
   }
 
@@ -55,6 +68,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     _debounceTimer?.cancel();
+    _speech.stop();
     
     // Clear all search state
     _placePredictions.clear();
@@ -63,6 +77,53 @@ class _SearchScreenState extends State<SearchScreen> {
     _isSearching = false;
     
     super.dispose();
+  }
+
+  Future<void> _loadFamousSpotsNearUser() async {
+    if (_currentLocation == null) return;
+    setState(() { _isLoadingFamous = true; });
+    try {
+      final locationParam = '${_currentLocation!['lat']},${_currentLocation!['lng']}';
+      // Localized keyword per category for autocomplete
+      final Map<String, String> categoryQueries = {
+        'tourist_attraction': 'điểm du lịch',
+        'park': 'công viên',
+        'restaurant': 'nhà hàng',
+        'shopping_mall': 'trung tâm thương mại',
+      };
+      final List<PlaceModel> collected = [];
+      for (final entry in categoryQueries.entries) {
+        // Get a few suggestions near the user
+        final preds = await GoongPlacesService.getPlaceAutocomplete(
+          entry.value,
+          location: locationParam,
+          radius: 5000,
+          language: 'vi',
+        );
+        for (final p in preds.take(3)) {
+          final detail = await GoongPlacesService.getPlaceDetails(p.placeId, language: 'vi');
+          if (detail != null) {
+            collected.add(detail);
+          }
+        }
+      }
+      // Deduplicate by placeId/name
+      final seen = <String>{};
+      final unique = <PlaceModel>[];
+      for (final p in collected) {
+        final key = (p.placeId?.isNotEmpty == true) ? p.placeId! : p.name;
+        if (key.isNotEmpty && !seen.contains(key)) {
+          seen.add(key);
+          unique.add(p);
+        }
+      }
+      setState(() {
+        _famousSpots = unique.take(10).toList();
+        _isLoadingFamous = false;
+      });
+    } catch (_) {
+      setState(() { _isLoadingFamous = false; });
+    }
   }
 
   void _onSearchChanged() {
@@ -125,6 +186,27 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Future<void> _addRecentSearch(String text) async {
+    if (text.trim().isEmpty) return;
+    final existing = List<String>.from(_recentSearches);
+    existing.remove(text);
+    existing.insert(0, text);
+    final clipped = existing.take(10).toList();
+    setState(() { _recentSearches = clipped; });
+    await _storage.saveRecentSearches(clipped);
+  }
+
+  Future<void> _removeRecentSearch(String text) async {
+    final updated = List<String>.from(_recentSearches)..remove(text);
+    setState(() { _recentSearches = updated; });
+    await _storage.saveRecentSearches(updated);
+  }
+
+  Future<void> _clearRecentSearches() async {
+    setState(() { _recentSearches = []; });
+    await _storage.saveRecentSearches([]);
+  }
+
   Future<void> _onPlaceSelected(PlacePrediction prediction) async {
     setState(() {
       _searchController.text = prediction.description;
@@ -146,6 +228,9 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() {
           _searchResults = [placeDetails];
         });
+
+        // Add to recent searches and persist
+        await _addRecentSearch(prediction.description);
 
         // Fetch nearby parking lots using selected place lat/lng
         final double? lat = placeDetails.latitude;
@@ -180,16 +265,6 @@ class _SearchScreenState extends State<SearchScreen> {
           debugPrint('Error loading nearby parking lots: $e');
         }
 
-        // Add to recent searches
-        if (!_recentSearches.contains(prediction.description)) {
-          setState(() {
-            _recentSearches.insert(0, prediction.description);
-            if (_recentSearches.length > 10) {
-              _recentSearches = _recentSearches.take(10).toList();
-            }
-          });
-        }
-        
         // Return selected location to home screen
         _returnLocationToHome(placeDetails);
       }
@@ -310,6 +385,34 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Future<void> _performCategorySearch(String localizedKeyword) async {
+    if (localizedKeyword.trim().isEmpty) return;
+    await _performTextSearch(localizedKeyword);
+  }
+
+  Future<void> _toggleListening() async {
+    if (!_isListening) {
+      final available = await _speech.initialize(
+        onStatus: (s) { if (s == 'done') setState(() { _isListening = false; }); },
+        onError: (e) { setState(() { _isListening = false; }); },
+      );
+      if (available) {
+        setState(() { _isListening = true; });
+        await _speech.listen(
+          localeId: 'vi_VN',
+          onResult: (result) {
+            final text = result.recognizedWords;
+            _searchController.text = text;
+            _onSearchChanged();
+          },
+        );
+      }
+    } else {
+      await _speech.stop();
+      setState(() { _isListening = false; });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -337,8 +440,8 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.mic, color: AppColors.darkGrey),
+            onPressed: _toggleListening,
+            icon: Icon(_isListening ? Icons.mic_off : Icons.mic, color: AppColors.darkGrey),
           ),
         ],
       ),
@@ -412,10 +515,25 @@ class _SearchScreenState extends State<SearchScreen> {
                               _buildCurrentLocationItem(),
                               const SizedBox(height: 16),
                             ],
-                            
+                            // Popular/Famous near you
+                            if (_famousSpots.isNotEmpty) ...[
+                              _buildSectionHeader('PHỔ BIẾN GẦN BẠN'),
+                              _buildFamousCarousel(),
+                              const SizedBox(height: 24),
+                            ],
+                
                   // Recent Searches
                   if (_recentSearches.isNotEmpty) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
                     _buildSectionHeader('Tìm kiếm gần đây'),
+                        TextButton(
+                          onPressed: _clearRecentSearches,
+                          child: const Text('Xóa tất cả'),
+                        ),
+                      ],
+                    ),
                     ..._recentSearches.map((search) => _buildRecentSearchItem(search)),
                     const SizedBox(height: 24),
                   ],
@@ -480,7 +598,10 @@ class _SearchScreenState extends State<SearchScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader('Kết quả tìm kiếm'),
-          ..._searchResults.map((place) => _buildPlaceItem(place)),
+          ..._searchResults.map((place) => GestureDetector(
+                onTap: () => _returnLocationToHome(place),
+                child: _buildPlaceItem(place),
+              )),
         ],
       ),
     );
@@ -726,6 +847,63 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildFamousCarousel() {
+    return SizedBox(
+      height: 140,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _famousSpots.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final place = _famousSpots[index];
+          return GestureDetector(
+            onTap: () => _onPlaceSelected(PlacePrediction(
+              placeId: place.placeId ?? '',
+              mainText: place.name,
+              secondaryText: place.formattedAddress,
+              description: place.name,
+            )),
+            child: Container(
+              width: 220,
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                children: [
+                  // Placeholder image/background
+                  Container(color: AppColors.background),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: Text(
+                      place.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppThemes.bodyMedium.copyWith(
+                        color: AppColors.darkGrey,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildRecentSearchItem(String search) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -740,9 +918,7 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       trailing: IconButton(
         onPressed: () {
-          setState(() {
-            _recentSearches.remove(search);
-          });
+          _removeRecentSearch(search);
         },
         icon: const Icon(
           Icons.close,
@@ -840,10 +1016,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildCategoryGrid() {
     final categories = [
-      {'icon': Icons.restaurant, 'name': 'Nhà hàng', 'color': AppColors.error},
-      {'icon': Icons.local_hospital, 'name': 'Bệnh viện', 'color': AppColors.info},
-      {'icon': Icons.school, 'name': 'Trường học', 'color': AppColors.warning},
-      {'icon': Icons.shopping_cart, 'name': 'Mua sắm', 'color': AppColors.success},
+      {'icon': Icons.restaurant, 'name': 'Nhà hàng', 'color': AppColors.error, 'query': 'nhà hàng'},
+      {'icon': Icons.local_hospital, 'name': 'Bệnh viện', 'color': AppColors.info, 'query': 'bệnh viện'},
+      {'icon': Icons.school, 'name': 'Trường học', 'color': AppColors.warning, 'query': 'trường học'},
+      {'icon': Icons.shopping_cart, 'name': 'Mua sắm', 'color': AppColors.success, 'query': 'mua sắm'},
     ];
 
     return GridView.builder(
@@ -858,7 +1034,9 @@ class _SearchScreenState extends State<SearchScreen> {
       itemCount: categories.length,
       itemBuilder: (context, index) {
         final category = categories[index];
-        return Container(
+        return GestureDetector(
+          onTap: () => _performCategorySearch(category['query'] as String),
+          child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: AppColors.white,
@@ -896,6 +1074,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ],
+            ),
           ),
         );
       },

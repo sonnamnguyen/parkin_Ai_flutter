@@ -127,12 +127,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                             Icons.home,
                             AppStrings.home,
                             0,
+                        
                           ),
                           _buildNavigationItem(
                             Icons.directions_car_outlined,
                             Icons.directions_car,
                             AppStrings.myCars,
                             1,
+                         
                           ),
                           _buildNavigationItem(
                             Icons.notifications_outlined,
@@ -302,6 +304,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     IconData activeIcon,
     String label,
     int index,
+    {Widget? customIcon, Widget? customActiveIcon}
   ) {
     final isActive = _currentIndex == index;
     
@@ -328,12 +331,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               children: [
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    isActive ? activeIcon : icon,
-                    key: ValueKey(isActive),
-                    color: isActive ? AppColors.primary : AppColors.textSecondary,
-                    size: 24,
-                  ),
+                  child: isActive
+                      ? (customActiveIcon ?? Icon(
+                          activeIcon,
+                          key: const ValueKey('active'),
+                          color: AppColors.primary,
+                          size: 24,
+                        ))
+                      : (customIcon ?? Icon(
+                          icon,
+                          key: const ValueKey('inactive'),
+                          color: AppColors.textSecondary,
+                          size: 24,
+                        )),
                 ),
                 const SizedBox(width: 16),
                 Expanded(

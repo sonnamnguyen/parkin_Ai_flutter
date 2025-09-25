@@ -129,19 +129,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
             : '2000-01-01',
       );
 
-      final authResponse = await _authService.register(registerRequest);
+      await _authService.register(registerRequest);
       
       if (mounted) {
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Đăng ký thành công! Chào mừng ${authResponse.username}'),
+            content: Text('Đăng ký thành công! Chào mừng ${_usernameController.text.trim()}'),
             backgroundColor: AppColors.success,
           ),
         );
         
-        // Navigate to main screen on success
-        Navigator.of(context).pushReplacementNamed('/main');
+        // Navigate to login screen after successful registration
+        Navigator.of(context).pushReplacementNamed('/login');
       }
     } catch (e) {
       if (mounted) {
@@ -189,20 +189,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Center(
                 child: Column(
                   children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.gradientStart, AppColors.gradientEnd],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(
-                        Icons.local_parking,
-                        color: AppColors.white,
-                        size: 40,
-                      ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset('assets/icons/icon_app.png', width: 80, height: 90, fit: BoxFit.cover),
                     ),
                     const SizedBox(height: 16),
                     Text(

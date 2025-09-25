@@ -47,6 +47,15 @@ class StorageService {
     await _prefs?.setBool(AppConstants.isFirstLaunchKey, false);
   }
 
+  // Recent searches
+  List<String> getRecentSearches() {
+    return _prefs?.getStringList(AppConstants.recentSearchesKey) ?? <String>[];
+  }
+
+  Future<void> saveRecentSearches(List<String> items) async {
+    await _prefs?.setStringList(AppConstants.recentSearchesKey, items);
+  }
+
   // Clear all data
   Future<void> clearAll() async {
     await _prefs?.clear();

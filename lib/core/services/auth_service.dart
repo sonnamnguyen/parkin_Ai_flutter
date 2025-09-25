@@ -43,7 +43,7 @@ class AuthService {
   }
 
   // Register
-  Future<AuthResponse> register(RegisterRequest request) async {
+  Future<void> register(RegisterRequest request) async {
     try {
       final response = await _apiClient.post(
         ApiEndpoints.register,
@@ -51,13 +51,9 @@ class AuthService {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final authResponse = AuthResponse.fromJson(response.data);
-        
-        // Save token and user data
-        await _storageService.saveToken(authResponse.accessToken);
-        await _storageService.saveUserData(authResponse.toJson().toString());
-        
-        return authResponse;
+        // Registration successful - no tokens returned, just user data
+        // User needs to login separately to get tokens
+        return;
       } else {
         throw DioException(
           requestOptions: response.requestOptions,

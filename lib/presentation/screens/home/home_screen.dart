@@ -14,6 +14,7 @@ import '../../providers/auth_provider.dart';
 import '../../../data/models/parking_hours_model.dart';
 import '../../../core/services/parking_lot_service.dart';
 import '../../../core/services/directions_service.dart';
+import '../../../core/services/distance_service.dart';
 import '../../../routes/app_routes.dart';
 import '../../../core/constants/api_config.dart';
 // Using PNG raster for car icon; if you add assets/images/car.png it will be used
@@ -55,6 +56,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Route state
   Line? _routeLine;
   LatLng? _lastRouteTarget;
+  String? _routeDurationText;
+  String? _routeDistanceText;
+  bool _directionsMode = false; // when true, search bar sets origin/destination
+  LatLng? _directionsOrigin;
+  LatLng? _directionsDestination;
+  String? _directionsOriginName;
+  String? _directionsDestinationName;
   // Session state
   bool _showLogoutButton = false;
 
@@ -221,33 +229,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _drawRouteTo(LatLng destination) async {
     if (_mapController == null) return;
-    if (_currentPosition == null) {
-      debugPrint('Cannot draw route: current location unknown');
-      return;
-    }
-    final origin = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    final origin = _directionsOrigin ?? (_currentPosition != null
+        ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
+        : null);
+    if (origin == null) return;
     try {
       final points = await _directionsService.getDrivingRoute(origin: origin, destination: destination);
+      if (points.isEmpty) return;
+      // Remove previous
       if (_routeLine != null) {
-        await _mapController!.removeLine(_routeLine!);
+        try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
         _routeLine = null;
       }
-      _routeLine = await _mapController!.addLine(
-        LineOptions(
-          geometry: points,
-          lineColor: '#1E88E5',
-          lineWidth: 5.0,
-          lineOpacity: 0.9,
-        ),
+      _routeLine = await _mapController!.addLine(LineOptions(
+        geometry: points,
+        lineColor: '#1E88E5',
+        lineWidth: 4.0,
+      ));
+      // Fetch time & distance
+      final origins = '${origin.latitude},${origin.longitude}';
+      final destinations = '${destination.latitude},${destination.longitude}';
+      final dm = await DistanceMatrixService.getDurations(
+        origins: origins,
+        destinations: destinations,
+        mode: 'motorcycle',
       );
-      final bounds = _boundsFor(points);
-      await _mapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(bounds, top: 80, right: 80, bottom: 120, left: 80),
-      );
+      if (dm != null && dm.rows.isNotEmpty && dm.rows.first.isNotEmpty) {
+        final el = dm.rows.first.first;
+        setState(() {
+          _routeDurationText = el.duration.text;
+          _routeDistanceText = el.distance.text;
+          _directionsMode = true;
+        });
+      }
       _lastRouteTarget = destination;
+      final bounds = _boundsFor(points);
+      try {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds,
+              left: 40, right: 40, top: 80, bottom: 200),
+        );
+      } catch (_) {}
     } catch (e) {
       debugPrint('Failed to draw route: $e');
     }
+  }
+
+  Future<void> _drawRouteBetween() async {
+    if (_directionsDestination == null) return;
+    await _drawRouteTo(_directionsDestination!);
   }
 
   Future<void> _toggleRouteTo(LatLng destination) async {
@@ -959,6 +989,150 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 fontSize: 14,
                               ),
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Top origin/destination panel in directions mode
+                if (_directionsMode)
+                  Positioned(
+                    top: 80,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0,2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          GestureDetector(
+                            onTap: () async {
+                              final res = await Navigator.of(context).pushNamed('/search', arguments: {
+                                'currentLocation': _currentPosition != null ? {
+                                  'lat': _currentPosition!.latitude,
+                                  'lng': _currentPosition!.longitude,
+                                } : null,
+                              });
+                              if (res is Map<String, dynamic>) {
+                                final loc = res['selectedLocation'] as Map<String, double>?;
+                                final name = res['placeName'] as String?;
+                                if (loc != null) {
+                                  setState(() {
+                                    _directionsOrigin = LatLng(loc['lat']!, loc['lng']!);
+                                    _directionsOriginName = name ?? 'Điểm bắt đầu';
+                                  });
+                                  await _drawRouteBetween();
+                                }
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                const Icon(Icons.circle, size: 14, color: AppColors.textSecondary),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _directionsOriginName ?? 'Vị trí của tôi',
+                                    style: AppThemes.bodyMedium,
+                                  ),
+                                ),
+                                const Icon(Icons.edit, size: 16, color: AppColors.textSecondary),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 16),
+                          GestureDetector(
+                            onTap: () async {
+                              final res = await Navigator.of(context).pushNamed('/search', arguments: {
+                                'currentLocation': _currentPosition != null ? {
+                                  'lat': _currentPosition!.latitude,
+                                  'lng': _currentPosition!.longitude,
+                                } : null,
+                              });
+                              if (res is Map<String, dynamic>) {
+                                final loc = res['selectedLocation'] as Map<String, double>?;
+                                final name = res['placeName'] as String?;
+                                if (loc != null) {
+                                  setState(() {
+                                    _directionsDestination = LatLng(loc['lat']!, loc['lng']!);
+                                    _directionsDestinationName = name ?? 'Điểm đến';
+                                  });
+                                  await _drawRouteBetween();
+                                }
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                const Icon(Icons.location_on, size: 16, color: AppColors.primary),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _directionsDestinationName ?? 'Chọn điểm đến',
+                                    style: AppThemes.bodyMedium,
+                                  ),
+                                ),
+                                const Icon(Icons.edit, size: 16, color: AppColors.textSecondary),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Bottom route info bar
+                if (_directionsMode && _routeDurationText != null && _routeDistanceText != null)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0,2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.directions, color: AppColors.primary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '${_routeDurationText!} • ${_routeDistanceText!}',
+                              style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () async {
+                              // Clear directions mode
+                              setState(() {
+                                _directionsMode = false;
+                                _routeDurationText = null;
+                                _routeDistanceText = null;
+                              });
+                              if (_routeLine != null) {
+                                try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
+                                _routeLine = null;
+                              }
+                            },
+                            child: const Text('Hủy'),
                           ),
                         ],
                       ),

@@ -13,6 +13,7 @@ class AppConstants {
   static const String userTokenKey = 'user_token';
   static const String userDataKey = 'user_data';
   static const String isFirstLaunchKey = 'is_first_launch';
+  static const String recentSearchesKey = 'recent_searches';
   
   // Map
   static const double defaultLatitude = 10.8231; // Ho Chi Minh City

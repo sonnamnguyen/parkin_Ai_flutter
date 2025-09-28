@@ -104,7 +104,12 @@ class AuthService {
         case 400:
           return Exception('Bad Request: $message');
         case 401:
-          return Exception('Unauthorized: $message');
+          // Wrong credentials or unauthorized
+          final lower = message.toString().toLowerCase();
+          final isWrongCreds = lower.contains('invalid') || lower.contains('wrong') || lower.contains('unauthorized') || lower.contains('sai') || lower.contains('không đúng');
+          return Exception(isWrongCreds
+              ? 'Email hoặc mật khẩu không đúng.'
+              : 'Không có quyền truy cập: $message');
         case 403:
           return Exception('Forbidden: $message');
         case 404:

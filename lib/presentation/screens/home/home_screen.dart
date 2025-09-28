@@ -4,6 +4,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:mapbox_gl/mapbox_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
@@ -65,6 +68,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _directionsDestinationName;
   // Session state
   bool _showLogoutButton = false;
+  // Navigation mode state
+  bool _isInNavigationMode = false;
+  bool _isNavigating = false;
+  LatLng? _navigationDestination;
+  String? _navigationDestinationName;
+  String? _remainingTime;
+  String? _remainingDistance;
+  Timer? _navigationTimer;
+  bool _hasArrived = false;
+  
+  // Step-by-step navigation
+  List<Map<String, dynamic>> _navigationSteps = [];
+  int _currentStepIndex = 0;
+  String? _currentInstruction;
+  bool _isFollowingCamera = false;
+  StreamSubscription<Position>? _locationSubscription;
+  
+  // Instruction preview mode
+  bool _isPreviewMode = false;
+  int _previewStepIndex = 0;
+  
+  // Route markers
+  Symbol? _routeStartSymbol;
+  Symbol? _routeEndSymbol;
 
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
@@ -93,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.removeListener(() {});
     _searchController.dispose();
+    _navigationTimer?.cancel();
     _positionSub?.cancel();
     _isMapReady = false;
     _symbolIdToParking.clear();
@@ -118,6 +146,431 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  void _startNavigationMode() {
+    setState(() {
+      _isInNavigationMode = true;
+      _hasArrived = false;
+    });
+  }
+
+  void _exitNavigationMode() async {
+    setState(() {
+      _isInNavigationMode = false;
+      _isNavigating = false;
+      _isPreviewMode = false;
+      _remainingTime = null;
+      _remainingDistance = null;
+      _navigationDestination = null;
+      _navigationDestinationName = null;
+      _directionsOrigin = null;
+      _directionsDestination = null;
+      _directionsOriginName = null;
+      _directionsDestinationName = null;
+      _routeDurationText = null;
+      _routeDistanceText = null;
+      _currentInstruction = null;
+      _navigationSteps.clear();
+      _currentStepIndex = 0;
+      _previewStepIndex = 0;
+    });
+    _navigationTimer?.cancel();
+    _navigationTimer = null;
+    _locationSubscription?.cancel();
+    if (_routeLine != null && _mapController != null) {
+      try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
+      _routeLine = null;
+    }
+    // Remove route markers
+    await _removeRouteMarkers();
+  }
+
+  void _startLiveNavigation() {
+    if (_directionsDestination == null || _currentPosition == null) return;
+    setState(() {
+      _isNavigating = true;
+    });
+    _navigationTimer?.cancel();
+    _navigationTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      // Update camera
+      try {
+        if (_currentPosition != null && _mapController != null) {
+          await _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(
+              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+              18,
+            ),
+          );
+        }
+      } catch (_) {}
+
+      // Update remaining time/distance
+      final origins = '${_currentPosition!.latitude},${_currentPosition!.longitude}';
+      final destinations = '${_directionsDestination!.latitude},${_directionsDestination!.longitude}';
+      final dm = await DistanceMatrixService.getDurations(
+        origins: origins,
+        destinations: destinations,
+        mode: 'motorcycle',
+      );
+      if (!mounted) return;
+      if (dm != null && dm.rows.isNotEmpty && dm.rows.first.isNotEmpty) {
+        final el = dm.rows.first.first;
+        setState(() {
+          _remainingTime = el.duration.text;
+          _remainingDistance = el.distance.text;
+          _routeDurationText = _remainingTime;
+          _routeDistanceText = _remainingDistance;
+        });
+      }
+
+      // Arrival check
+      final double dist = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _directionsDestination!.latitude,
+        _directionsDestination!.longitude,
+      );
+      if (dist <= 50 && !_hasArrived) {
+        _hasArrived = true;
+        _showArrivedDialog();
+      }
+    });
+  }
+
+  void _startStepByStepNavigation() {
+    if (_navigationSteps.isEmpty) return;
+    
+    setState(() {
+      _isNavigating = true;
+      _isFollowingCamera = true;
+      _currentStepIndex = 0;
+      _currentInstruction = _navigationSteps[0]['instruction'];
+    });
+    
+    // Focus camera to current location immediately
+    if (_currentPosition != null && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          18,
+        ),
+      );
+    }
+    
+    // Start location tracking for step-by-step navigation
+    _locationSubscription?.cancel();
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen((Position position) {
+      if (_isNavigating && mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+        
+        // Update camera to follow user
+        if (_mapController != null && _isFollowingCamera) {
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(
+              LatLng(position.latitude, position.longitude),
+              18,
+            ),
+          );
+        }
+        
+        // Check if we need to move to next step
+        _checkForNextStep(position);
+      }
+    });
+  }
+
+  void _checkForNextStep(Position currentPosition) {
+    if (_currentStepIndex >= _navigationSteps.length - 1) return;
+    
+    final nextStep = _navigationSteps[_currentStepIndex + 1];
+    final nextStepLocation = nextStep['start_location'] as LatLng?;
+    
+    if (nextStepLocation != null) {
+      final distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        nextStepLocation.latitude,
+        nextStepLocation.longitude,
+      );
+      
+      if (distance < 30) { // Within 30 meters of next step
+        setState(() {
+          _currentStepIndex++;
+          _currentInstruction = _navigationSteps[_currentStepIndex]['instruction'];
+        });
+        debugPrint('Moved to step ${_currentStepIndex + 1}: $_currentInstruction');
+      }
+    }
+  }
+
+  void _startPreviewMode() {
+    if (_navigationSteps.isEmpty) return;
+    
+    setState(() {
+      _isPreviewMode = true;
+      _previewStepIndex = 0;
+    });
+    
+    // Focus camera on begin place first
+    if (_directionsOrigin != null && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_directionsOrigin!, 12),
+      );
+    }
+    
+    _focusOnPreviewStep();
+  }
+
+  void _focusOnPreviewStep() {
+    if (_previewStepIndex < _navigationSteps.length) {
+      final step = _navigationSteps[_previewStepIndex];
+      final stepLocation = step['start_location'] as LatLng?;
+      
+      if (stepLocation != null && _mapController != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            stepLocation,
+            18,
+          ),
+        );
+      }
+    }
+  }
+
+  void _navigatePreviewStep(int direction) {
+    if (_navigationSteps.isEmpty) return;
+    
+    setState(() {
+      _previewStepIndex = (_previewStepIndex + direction).clamp(0, _navigationSteps.length - 1);
+    });
+    
+    _focusOnPreviewStep();
+  }
+
+  void _exitPreviewMode() {
+    setState(() {
+      _isPreviewMode = false;
+      _previewStepIndex = 0;
+    });
+    
+    // Zoom out to the begin place
+    if (_directionsOrigin != null && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_directionsOrigin!, 12),
+      );
+    } else if (_currentPosition != null && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          12,
+        ),
+      );
+    }
+  }
+
+  bool _isCurrentLocationAtStart() {
+    if (_currentPosition == null || _directionsOrigin == null) return false;
+    
+    final distance = Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      _directionsOrigin!.latitude,
+      _directionsOrigin!.longitude,
+    );
+    
+    return distance < 50; // Within 50 meters of start point
+  }
+
+  Future<void> _addRouteMarkers() async {
+    if (_mapController == null) return;
+    
+    // Remove existing route markers
+    await _removeRouteMarkers();
+    
+    // Small delay to ensure map is ready
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // Add start marker (pin.png) - RED for origin
+    if (_directionsOrigin != null) {
+      // Check if origin is at current location or parking lot (priority)
+      final isAtCurrentLocation = _currentPosition != null && 
+        Geolocator.distanceBetween(
+          _currentPosition!.latitude, _currentPosition!.longitude,
+          _directionsOrigin!.latitude, _directionsOrigin!.longitude,
+        ) < 50;
+      
+      final isAtParkingLot = _nearbyParking.any((parking) => 
+        Geolocator.distanceBetween(
+          parking.latitude, parking.longitude,
+          _directionsOrigin!.latitude, _directionsOrigin!.longitude,
+        ) < 50);
+      
+      // Only add route marker if not at current location or parking lot
+      if (!isAtCurrentLocation && !isAtParkingLot) {
+        try {
+          debugPrint('Loading pin.png for start marker...');
+          final startData = await rootBundle.load('assets/images/pin.png');
+          debugPrint('pin.png loaded successfully, size: ${startData.lengthInBytes} bytes');
+          await _mapController!.addImage('route-start', startData.buffer.asUint8List(), false);
+          debugPrint('route-start image added to map');
+          _routeStartSymbol = await _mapController!.addSymbol(
+            SymbolOptions(
+              geometry: _directionsOrigin!,
+              iconImage: 'route-start',
+              iconSize: 0.1,
+            ),
+          );
+          debugPrint('Start marker symbol added successfully');
+        } catch (e) {
+          debugPrint('Failed to load start pin: $e');
+          // Fallback to built-in marker
+          debugPrint('Using fallback marker-15 for start');
+          _routeStartSymbol = await _mapController!.addSymbol(
+            SymbolOptions(
+              geometry: _directionsOrigin!,
+              iconImage: 'marker-15',
+              iconColor: '#FF0000',
+              iconSize: 1.0,
+            ),
+          );
+        }
+      } else {
+        debugPrint('Start location is at current location or parking lot - skipping route marker');
+      }
+    }
+    
+    // Add end marker (pin_blue.png) - BLUE for destination
+    if (_directionsDestination != null) {
+      // Check if destination is at current location or parking lot (priority)
+      final isAtCurrentLocation = _currentPosition != null && 
+        Geolocator.distanceBetween(
+          _currentPosition!.latitude, _currentPosition!.longitude,
+          _directionsDestination!.latitude, _directionsDestination!.longitude,
+        ) < 50;
+      
+      final isAtParkingLot = _nearbyParking.any((parking) => 
+        Geolocator.distanceBetween(
+          parking.latitude, parking.longitude,
+          _directionsDestination!.latitude, _directionsDestination!.longitude,
+        ) < 50);
+      
+      // Only add route marker if not at current location or parking lot
+      if (!isAtCurrentLocation && !isAtParkingLot) {
+        try {
+          debugPrint('Loading pin_blue.png for end marker...');
+          final endData = await rootBundle.load('assets/images/pin_blue.png');
+          debugPrint('pin_blue.png loaded successfully, size: ${endData.lengthInBytes} bytes');
+          await _mapController!.addImage('route-end', endData.buffer.asUint8List(), false);
+          debugPrint('route-end image added to map');
+          _routeEndSymbol = await _mapController!.addSymbol(
+            SymbolOptions(
+              geometry: _directionsDestination!,
+              iconImage: 'route-end',
+              iconSize: 1.0,
+            ),
+          );
+          debugPrint('End marker symbol added successfully');
+        } catch (e) {
+          debugPrint('Failed to load end pin: $e');
+          // Fallback to built-in marker
+          debugPrint('Using fallback marker-15 for end');
+          _routeEndSymbol = await _mapController!.addSymbol(
+            SymbolOptions(
+              geometry: _directionsDestination!,
+              iconImage: 'marker-15',
+              iconColor: '#0000FF',
+              iconSize: 1.0,
+            ),
+          );
+        }
+      } else {
+        debugPrint('End location is at current location or parking lot - skipping route marker');
+      }
+    }
+  }
+
+  Future<void> _removeRouteMarkers() async {
+    if (_mapController == null) return;
+    
+    try {
+      // Remove start marker
+      if (_routeStartSymbol != null) {
+        await _mapController!.removeSymbol(_routeStartSymbol!);
+        _routeStartSymbol = null;
+      }
+      // Remove end marker
+      if (_routeEndSymbol != null) {
+        await _mapController!.removeSymbol(_routeEndSymbol!);
+        _routeEndSymbol = null;
+      }
+    } catch (e) {
+      debugPrint('Error removing route markers: $e');
+    }
+  }
+
+  Future<void> _showArrivedDialog() async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Đã đến nơi!'),
+          content: Text('Bạn đã đến ${_navigationDestinationName ?? 'điểm đến'}.')
+        );
+      },
+    );
+    _exitNavigationMode();
+  }
+
+  void _swapOriginDestination() async {
+    final oldOrigin = _directionsOrigin;
+    final oldOriginName = _directionsOriginName;
+    setState(() {
+      _directionsOrigin = _directionsDestination;
+      _directionsOriginName = _directionsDestinationName;
+      _directionsDestination = oldOrigin;
+      _directionsDestinationName = oldOriginName;
+    });
+    await _drawRouteBetween();
+    // Update markers to reflect the swap
+    await _addRouteMarkers();
+  }
+
+  Future<void> _toggleNavigationTo(LatLng destination, String? name) async {
+    // If already navigating to same destination, exit navigation mode
+    if (_isInNavigationMode && _directionsDestination != null) {
+      final same = (destination.latitude - _directionsDestination!.latitude).abs() < 1e-6 &&
+                   (destination.longitude - _directionsDestination!.longitude).abs() < 1e-6;
+      if (same) {
+        _exitNavigationMode();
+        return;
+      }
+    }
+
+    setState(() {
+      _isInNavigationMode = true;
+      _directionsMode = true;
+      _navigationDestination = destination;
+      _navigationDestinationName = name ?? 'Điểm đến';
+      if (_currentPosition != null) {
+        _directionsOrigin = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+        _directionsOriginName = 'Vị trí của tôi';
+      } else {
+        _directionsOrigin = null;
+        _directionsOriginName = 'Chọn điểm bắt đầu';
+      }
+      _directionsDestination = destination;
+      _directionsDestinationName = name ?? 'Điểm đến';
+    });
+    await _drawRouteBetween();
   }
 
   Future<void> _getCurrentLocation() async {
@@ -246,30 +699,162 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         lineColor: '#1E88E5',
         lineWidth: 4.0,
       ));
-      // Fetch time & distance
+      // Fetch time & distance using Goong Directions API
       final origins = '${origin.latitude},${origin.longitude}';
       final destinations = '${destination.latitude},${destination.longitude}';
-      final dm = await DistanceMatrixService.getDurations(
-        origins: origins,
-        destinations: destinations,
-        mode: 'motorcycle',
-      );
-      if (dm != null && dm.rows.isNotEmpty && dm.rows.first.isNotEmpty) {
-        final el = dm.rows.first.first;
-        setState(() {
-          _routeDurationText = el.duration.text;
-          _routeDistanceText = el.distance.text;
-          _directionsMode = true;
-        });
-      }
-      _lastRouteTarget = destination;
-      final bounds = _boundsFor(points);
+      debugPrint('Fetching route info: origins=$origins, destinations=$destinations');
+      debugPrint('API Key loaded: ${ApiConfig.isMapsApiKeyLoaded}');
+      
       try {
-        await _mapController!.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds,
-              left: 40, right: 40, top: 80, bottom: 200),
+        // Try to get duration and distance from Goong Directions API
+        final directionsUrl = 'https://rsapi.goong.io/Direction';
+        final directionsUri = Uri.parse(directionsUrl).replace(queryParameters: {
+          'origin': origins,
+          'destination': destinations,
+          'vehicle': 'car',
+          'api_key': ApiConfig.goongPlacesApiKey,
+        });
+        
+        debugPrint('Directions API URL: $directionsUri');
+        final directionsResp = await http.get(directionsUri);
+        debugPrint('Directions API response status: ${directionsResp.statusCode}');
+        debugPrint('Directions API response body: ${directionsResp.body}');
+        
+        if (directionsResp.statusCode == 200) {
+          final directionsData = json.decode(directionsResp.body) as Map<String, dynamic>;
+          final routes = directionsData['routes'] as List?;
+          if (routes != null && routes.isNotEmpty) {
+            final route = routes.first as Map<String, dynamic>;
+            final legs = route['legs'] as List?;
+            if (legs != null && legs.isNotEmpty) {
+              final leg = legs.first as Map<String, dynamic>;
+              final duration = leg['duration'] as Map<String, dynamic>?;
+              final distance = leg['distance'] as Map<String, dynamic>?;
+              
+              if (duration != null && distance != null) {
+                final durationText = duration['text'] as String? ?? 'N/A';
+                final distanceText = distance['text'] as String? ?? 'N/A';
+                
+                debugPrint('Route info: duration=$durationText, distance=$distanceText');
+                setState(() {
+                  _routeDurationText = durationText;
+                  _routeDistanceText = distanceText;
+                  _directionsMode = true;
+                  _remainingTime = durationText;
+                  _remainingDistance = distanceText;
+                });
+                debugPrint('Set route duration: $_routeDurationText, distance: $_routeDistanceText');
+                
+                // Extract step-by-step instructions if available
+                final steps = leg['steps'] as List?;
+                if (steps != null && steps.isNotEmpty) {
+                  debugPrint('Found ${steps.length} navigation steps from Goong Directions API');
+                  _navigationSteps.clear();
+                  for (int i = 0; i < steps.length; i++) {
+                    final step = steps[i] as Map<String, dynamic>;
+                    final instruction = step['html_instructions'] as String? ?? 
+                                     step['maneuver'] as String? ?? 
+                                     'Step ${i + 1}';
+                    final stepDistance = step['distance'] as Map<String, dynamic>?;
+                    final stepDuration = step['duration'] as Map<String, dynamic>?;
+                    final startLocation = step['start_location'] as Map<String, dynamic>?;
+                    
+                    _navigationSteps.add({
+                      'instruction': instruction,
+                      'distance': stepDistance?['text'] ?? '',
+                      'duration': stepDuration?['text'] ?? '',
+                      'start_location': startLocation != null 
+                        ? LatLng(startLocation['lat'] as double, startLocation['lng'] as double)
+                        : null,
+                    });
+                    debugPrint('Step ${i + 1}: $instruction at ${startLocation?['lat']}, ${startLocation?['lng']}');
+                  }
+                  _currentStepIndex = 0;
+                  _currentInstruction = _navigationSteps.isNotEmpty ? _navigationSteps[0]['instruction'] : null;
+                } else {
+                  debugPrint('No steps found in Goong Directions API response');
+                  // Fallback: Create steps from route points
+                  _createStepsFromRoutePoints(points);
+                }
+                return; // Success, exit early
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Directions API error: $e');
+      }
+      
+      // Fallback: Try DistanceMatrix API
+      try {
+        final dm = await DistanceMatrixService.getDurations(
+          origins: origins,
+          destinations: destinations,
+          mode: 'motorcycle',
         );
-      } catch (_) {}
+        
+        debugPrint('Distance matrix result: $dm');
+        
+        if (dm != null && dm.rows.isNotEmpty && dm.rows.first.isNotEmpty) {
+          final el = dm.rows.first.first;
+          debugPrint('Distance element: status=${el.status}, duration=${el.duration.text}, distance=${el.distance.text}');
+          setState(() {
+            _routeDurationText = el.duration.text;
+            _routeDistanceText = el.distance.text;
+            _directionsMode = true;
+            _remainingTime = el.duration.text;
+            _remainingDistance = el.distance.text;
+          });
+          debugPrint('Set route duration: $_routeDurationText, distance: $_routeDistanceText');
+          return; // Success, exit early
+        }
+      } catch (e) {
+        debugPrint('DistanceMatrix API error: $e');
+      }
+      
+      // Final fallback: Set default values
+      debugPrint('All APIs failed - setting fallback values');
+      setState(() {
+        _routeDurationText = 'Đang tính toán...';
+        _routeDistanceText = 'Đang tính toán...';
+        _directionsMode = true;
+        _remainingTime = 'Đang tính toán...';
+        _remainingDistance = 'Đang tính toán...';
+      });
+      _lastRouteTarget = destination;
+      
+      // Add route markers
+      await _addRouteMarkers();
+      
+      // Focus camera on both start and end spots
+      if (origin != null && destination != null) {
+        try {
+          final bounds = LatLngBounds(
+            southwest: LatLng(
+              math.min(origin.latitude, destination.latitude) - 0.01,
+              math.min(origin.longitude, destination.longitude) - 0.01,
+            ),
+            northeast: LatLng(
+              math.max(origin.latitude, destination.latitude) + 0.01,
+              math.max(origin.longitude, destination.longitude) + 0.01,
+            ),
+          );
+          await _mapController!.animateCamera(
+            CameraUpdate.newLatLngBounds(bounds),
+          );
+        } catch (_) {
+          // Fallback to begin place if bounds fail
+          await _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(origin, 12),
+          );
+        }
+      } else if (origin != null) {
+        try {
+          await _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(origin, 12),
+          );
+        } catch (_) {}
+      }
     } catch (e) {
       debugPrint('Failed to draw route: $e');
     }
@@ -277,7 +862,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _drawRouteBetween() async {
     if (_directionsDestination == null) return;
+    
+    // If we have both origin and destination, focus camera on the road between them
+    if (_directionsOrigin != null && _directionsDestination != null) {
+      try {
+        final bounds = LatLngBounds(
+          southwest: LatLng(
+            math.min(_directionsOrigin!.latitude, _directionsDestination!.latitude) - 0.01,
+            math.min(_directionsOrigin!.longitude, _directionsDestination!.longitude) - 0.01,
+          ),
+          northeast: LatLng(
+            math.max(_directionsOrigin!.latitude, _directionsDestination!.latitude) + 0.01,
+            math.max(_directionsOrigin!.longitude, _directionsDestination!.longitude) + 0.01,
+          ),
+        );
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds),
+        );
+      } catch (_) {
+        // Fallback to destination if bounds fail
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(_directionsDestination!, 12),
+        );
+      }
+    }
+    
     await _drawRouteTo(_directionsDestination!);
+  }
+
+  void _createStepsFromRoutePoints(List<LatLng> points) {
+    debugPrint('Creating steps from route points: ${points.length} points');
+    _navigationSteps.clear();
+    
+    if (points.length < 2) return;
+    
+    // Create steps every 5 points to avoid too many steps
+    final stepInterval = math.max(1, points.length ~/ 10);
+    
+    for (int i = 0; i < points.length; i += stepInterval) {
+      final point = points[i];
+      final stepNumber = (i ~/ stepInterval) + 1;
+      
+      _navigationSteps.add({
+        'instruction': 'Step $stepNumber',
+        'distance': '',
+        'duration': '',
+        'start_location': point,
+      });
+    }
+    
+    // Always add the last point as the final step
+    if (points.isNotEmpty) {
+      _navigationSteps.add({
+        'instruction': 'Arrive at destination',
+        'distance': '',
+        'duration': '',
+        'start_location': points.last,
+      });
+    }
+    
+    _currentStepIndex = 0;
+    _currentInstruction = _navigationSteps.isNotEmpty ? _navigationSteps[0]['instruction'] : null;
+    debugPrint('Created ${_navigationSteps.length} steps from route points');
   }
 
   Future<void> _toggleRouteTo(LatLng destination) async {
@@ -413,12 +1059,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           iconImage: _customIconsLoaded ? 'pin-blue' : 'marker-15',
           iconSize: _customIconsLoaded ? 1.2 : 1.6,
           iconColor: _customIconsLoaded ? null : '#1E88E5',
-          textField: name,
-          textSize: 12,
-          textColor: '#FFFFFF',
-          textHaloColor: '#000000',
-          textHaloWidth: 1,
-          textOffset: const Offset(0, 2),
+          
         ),
       );
 
@@ -533,13 +1174,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userLocationCircle = null;
       }
 
+      // Check if current location is at start or end point
+      bool isAtStart = _isCurrentLocationAtStart();
+      bool isAtEnd = _directionsDestination != null && 
+        Geolocator.distanceBetween(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+          _directionsDestination!.latitude,
+          _directionsDestination!.longitude,
+        ) < 50;
+      
       // Add car symbol at current location, rotated by heading
       final double heading = (_currentPosition?.heading ?? 0.0).toDouble();
       _userLocationSymbol = await _mapController!.addSymbol(
         SymbolOptions(
           geometry: userLocation,
           iconImage: _carIconLoaded ? 'car-icon' : 'marker-15',
-          iconSize: _carIconLoaded ? 1.0 : 1.2,
+          iconSize: _carIconLoaded ? (isAtStart || isAtEnd ? 1.2 : 1.0) : 1.2,
           iconRotate: heading,
         ),
       );
@@ -716,15 +1367,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         const SizedBox(height: 24),
                         ElevatedButton(
                           onPressed: () {
+                            if (_isSessionError(_error!)) {
+                              _handleLogout();
+                            } else {
                             if (_currentPosition != null) {
                               _loadNearbyParkingLots();
+                              }
                             }
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: AppColors.white,
                           ),
-                          child: const Text('Thử lại'),
+                          child: Text(_isSessionError(_error!) ? 'Đăng xuất' : 'Thử lại'),
                         ),
                       ],
                     ),
@@ -843,10 +1498,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     tiltGesturesEnabled: true,
                   ),
 
-                // Vehicle Card Overlay
+                // Vehicle Card Overlay - positioned under search panel in navigation mode, or in original position
                 if (_selectedParking != null)
                   Positioned(
-                    top: 16,
+                    top: _isInNavigationMode ? 80 : 16, // Move down when in navigation mode to appear under search
                     left: 16,
                     right: 16,
                     child: _buildVehicleCard(parking: _selectedParking!),
@@ -854,8 +1509,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                 
 
-                // My Location Button
-                if (!_isLoadingLocation)
+                // My Location Button (hidden during navigation and preview)
+                if (!_isLoadingLocation && !_isNavigating && !_isPreviewMode)
                   Positioned(
                     bottom: 80,
                     right: 16,
@@ -897,29 +1552,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                // Thunder Icon
+                // Thunder Icon (hidden during navigation and preview)
+                if (!_isNavigating && !_isPreviewMode)
                 Positioned(
                   bottom: 80,
                   left: 16,
-                  child: _buildThunderButton(),
-                ),
+                    child: _buildThunderButton(),
+                  ),
 
-                // Directions button for searched place (only when search has text)
-                if (_searchedLocation != null && _searchController.text.trim().isNotEmpty)
+                // Directions button for searched place (hidden in navigation mode)
+                if (_searchedLocation != null && _searchController.text.trim().isNotEmpty && !_isInNavigationMode)
                   Positioned(
                     bottom: 146,
                   right: 16,
                     child: FloatingActionButton(
                       heroTag: 'route_to_search',
-                      onPressed: () {
-                        _toggleRouteTo(_searchedLocation!);
+                      onPressed: () async {
+                        await _toggleNavigationTo(_searchedLocation!, _searchController.text.trim());
                       },
                       backgroundColor: AppColors.primary,
                       child: const Icon(Icons.directions),
                     ),
                 ),
 
-                // Search Bar at Bottom
+                // Search Bar at Bottom (hidden in navigation mode)
+                if (!_isInNavigationMode)
                 Positioned(
                   bottom: 16,
                   left: 16,
@@ -967,135 +1624,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: AppColors.black.withOpacity(0.2),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.logout,
-                            color: AppColors.white,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: _handleLogout,
-                            child: const Text(
-                              'Đăng xuất',
-                              style: TextStyle(
-                                color: AppColors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  ),
+              ],
+            ),
                     ),
                   ),
 
-                // Top origin/destination panel in directions mode
-                if (_directionsMode)
+                // Top origin/destination panel in navigation mode (hidden during active navigation)
+                if (_isInNavigationMode && !_isNavigating)
                   Positioned(
-                    top: 80,
+                    top: 16,
                     left: 16,
                     right: 16,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.black.withOpacity(0.08),
-                            blurRadius: 10,
-                            offset: const Offset(0,2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          GestureDetector(
-                            onTap: () async {
-                              final res = await Navigator.of(context).pushNamed('/search', arguments: {
-                                'currentLocation': _currentPosition != null ? {
-                                  'lat': _currentPosition!.latitude,
-                                  'lng': _currentPosition!.longitude,
-                                } : null,
-                              });
-                              if (res is Map<String, dynamic>) {
-                                final loc = res['selectedLocation'] as Map<String, double>?;
-                                final name = res['placeName'] as String?;
-                                if (loc != null) {
-                                  setState(() {
-                                    _directionsOrigin = LatLng(loc['lat']!, loc['lng']!);
-                                    _directionsOriginName = name ?? 'Điểm bắt đầu';
-                                  });
-                                  await _drawRouteBetween();
-                                }
-                              }
-                            },
-                            child: Row(
-                              children: [
-                                const Icon(Icons.circle, size: 14, color: AppColors.textSecondary),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _directionsOriginName ?? 'Vị trí của tôi',
-                                    style: AppThemes.bodyMedium,
-                                  ),
-                                ),
-                                const Icon(Icons.edit, size: 16, color: AppColors.textSecondary),
-                              ],
-                            ),
-                          ),
-                          const Divider(height: 16),
-                          GestureDetector(
-                            onTap: () async {
-                              final res = await Navigator.of(context).pushNamed('/search', arguments: {
-                                'currentLocation': _currentPosition != null ? {
-                                  'lat': _currentPosition!.latitude,
-                                  'lng': _currentPosition!.longitude,
-                                } : null,
-                              });
-                              if (res is Map<String, dynamic>) {
-                                final loc = res['selectedLocation'] as Map<String, double>?;
-                                final name = res['placeName'] as String?;
-                                if (loc != null) {
-                                  setState(() {
-                                    _directionsDestination = LatLng(loc['lat']!, loc['lng']!);
-                                    _directionsDestinationName = name ?? 'Điểm đến';
-                                  });
-                                  await _drawRouteBetween();
-                                }
-                              }
-                            },
-                            child: Row(
-                              children: [
-                                const Icon(Icons.location_on, size: 16, color: AppColors.primary),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _directionsDestinationName ?? 'Chọn điểm đến',
-                                    style: AppThemes.bodyMedium,
-                                  ),
-                                ),
-                                const Icon(Icons.edit, size: 16, color: AppColors.textSecondary),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                // Bottom route info bar
-                if (_directionsMode && _routeDurationText != null && _routeDistanceText != null)
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 24,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
@@ -1111,28 +1651,476 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.directions, color: AppColors.primary),
-                          const SizedBox(width: 12),
+                          // Origin input
                           Expanded(
-                            child: Text(
-                              '${_routeDurationText!} • ${_routeDistanceText!}',
-                              style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                            child: GestureDetector(
+                              onTap: () async {
+                                final res = await Navigator.of(context).pushNamed('/search', arguments: {
+                                  'currentLocation': _currentPosition != null ? {
+                                    'lat': _currentPosition!.latitude,
+                                    'lng': _currentPosition!.longitude,
+                                  } : null,
+                                });
+                                if (res is Map<String, dynamic>) {
+                                  final loc = res['selectedLocation'] as Map<String, double>?;
+                                  final name = res['placeName'] as String?;
+                                  if (loc != null) {
+                                    setState(() {
+                                      _directionsOrigin = LatLng(loc['lat']!, loc['lng']!);
+                                      _directionsOriginName = name ?? 'Điểm bắt đầu';
+                                    });
+                                    await _drawRouteBetween();
+                                    // Update markers to reflect the change
+                                    await _addRouteMarkers();
+                                  }
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.lightGrey.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.textSecondary)),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _directionsOriginName ?? 'Vị trí của tôi',
+                                        style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const Icon(Icons.edit, size: 14, color: AppColors.textSecondary),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: () async {
-                              // Clear directions mode
+                          // Swap button
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: IconButton(
+                              tooltip: 'Đổi chiều',
+                              onPressed: _swapOriginDestination,
+                              icon: const Icon(Icons.swap_vert, color: AppColors.textSecondary, size: 20),
+                            ),
+                          ),
+                          // Destination input
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () async {
+                                final res = await Navigator.of(context).pushNamed('/search', arguments: {
+                                  'currentLocation': _currentPosition != null ? {
+                                    'lat': _currentPosition!.latitude,
+                                    'lng': _currentPosition!.longitude,
+                                  } : null,
+                                });
+                                if (res is Map<String, dynamic>) {
+                                  final loc = res['selectedLocation'] as Map<String, double>?;
+                                  final name = res['placeName'] as String?;
+                                  if (loc != null) {
+                                    setState(() {
+                                      _directionsDestination = LatLng(loc['lat']!, loc['lng']!);
+                                      _directionsDestinationName = name ?? 'Điểm đến';
+                                    });
+                                    await _drawRouteBetween();
+                                    // Update markers to reflect the change
+                                    await _addRouteMarkers();
+                                  }
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.lightGrey.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.place, size: 16, color: AppColors.primary),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _directionsDestinationName ?? 'Chọn điểm đến',
+                                        style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const Icon(Icons.edit, size: 14, color: AppColors.textSecondary),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Step-by-step navigation instruction overlay
+                if (_isNavigating && _currentInstruction != null)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.navigation, color: AppColors.white, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Bước ${_currentStepIndex + 1}/${_navigationSteps.length}',
+                                  style: AppThemes.bodySmall.copyWith(
+                                    color: AppColors.white.withOpacity(0.8),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _currentInstruction!,
+                                  style: AppThemes.bodyMedium.copyWith(
+                                    color: AppColors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
                               setState(() {
-                                _directionsMode = false;
-                                _routeDurationText = null;
-                                _routeDistanceText = null;
+                                _isNavigating = false;
+                                _isFollowingCamera = false;
+                                _currentInstruction = null;
                               });
-                              if (_routeLine != null) {
-                                try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
-                                _routeLine = null;
-                              }
+                              _navigationTimer?.cancel();
+                              _locationSubscription?.cancel();
                             },
-                            child: const Text('Hủy'),
+                            icon: const Icon(Icons.close, color: AppColors.white),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Instruction preview overlay
+                if (_isPreviewMode && _navigationSteps.isNotEmpty)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.visibility, color: AppColors.white, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Xem trước bước ${_previewStepIndex + 1}/${_navigationSteps.length}',
+                                  style: AppThemes.bodySmall.copyWith(
+                                    color: AppColors.white.withOpacity(0.8),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _navigationSteps[_previewStepIndex]['instruction'],
+                                  style: AppThemes.bodyMedium.copyWith(
+                                    color: AppColors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Navigation arrows
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: _previewStepIndex > 0 
+                                  ? () => _navigatePreviewStep(-1)
+                                  : null,
+                                icon: Icon(
+                                  Icons.arrow_back_ios,
+                                  color: _previewStepIndex > 0 
+                                    ? AppColors.white 
+                                    : AppColors.white.withOpacity(0.3),
+                                  size: 20,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: _previewStepIndex < _navigationSteps.length - 1
+                                  ? () => _navigatePreviewStep(1)
+                                  : null,
+                                icon: Icon(
+                                  Icons.arrow_forward_ios,
+                                  color: _previewStepIndex < _navigationSteps.length - 1
+                                    ? AppColors.white 
+                                    : AppColors.white.withOpacity(0.3),
+                                  size: 20,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            onPressed: _exitPreviewMode,
+                            icon: const Icon(Icons.close, color: AppColors.white),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Turn icon button (purple curved arrow)
+                if (_isInNavigationMode && !_isNavigating && !_isPreviewMode)
+                  Positioned(
+                    bottom: 100,
+                    right: 16,
+                    child: GestureDetector(
+                      onTap: () {
+                        if (_routeLine != null) {
+                          // Toggle route off
+                          _mapController!.removeLine(_routeLine!);
+                          _routeLine = null;
+                          _lastRouteTarget = null;
+                          setState(() {
+                            _routeDurationText = null;
+                            _routeDistanceText = null;
+                          });
+                          
+                          // Zoom camera out when removing route
+                          if (_currentPosition != null && _mapController != null) {
+                            _mapController!.animateCamera(
+                              CameraUpdate.newLatLngZoom(
+                                LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                                14, // Zoom out to 14
+      ),
+    );
+  }
+                        } else {
+                          // Draw route
+                          _drawRouteBetween();
+                        }
+                      },
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: _routeLine != null ? AppColors.primary : AppColors.lightGrey,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.turn_right,
+                          color: _routeLine != null ? AppColors.white : AppColors.textSecondary,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Bottom navigation info card (route planning mode)
+                if (_isInNavigationMode && _routeDurationText != null && _routeDistanceText != null && !_isNavigating && !_isPreviewMode)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0,2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.directions_car, color: AppColors.primary),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  '${_routeDurationText!} • ${_routeDistanceText!}',
+                                  style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Đóng',
+                                onPressed: _exitNavigationMode,
+                                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () async {
+                                    if (_isCurrentLocationAtStart()) {
+                                      // Start actual navigation
+                                      if (_navigationSteps.isNotEmpty) {
+                                        _startStepByStepNavigation();
+                                      } else {
+                                        await _drawRouteBetween();
+                                      }
+                                    } else {
+                                      // Start preview mode
+                                      _startPreviewMode();
+                                    }
+                                  },
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                                  child: Text(_isCurrentLocationAtStart() ? 'Bắt đầu' : 'Xem trước'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Bottom stop button (during preview mode)
+                if (_isPreviewMode)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0,2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _exitPreviewMode,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.error,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: const Text(
+                                'Dừng',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Bottom stop button (during active navigation)
+                if (_isNavigating)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0,2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _navigationTimer?.cancel();
+                                _navigationTimer = null;
+                                _locationSubscription?.cancel();
+                                setState(() { 
+                                  _isNavigating = false;
+                                  _isFollowingCamera = false;
+                                  _currentInstruction = null;
+                                });
+                                
+                                // Zoom camera out when stopping navigation
+                                if (_currentPosition != null && _mapController != null) {
+                                  _mapController!.animateCamera(
+                                    CameraUpdate.newLatLngZoom(
+                                      LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                                      14, // Zoom out to 14 (was 18 during navigation)
+                                    ),
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.error,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: const Text(
+                                'Dừng',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -1466,8 +2454,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 // Navigate (route) button
                 InkWell(
-                  onTap: () {
-                    _toggleRouteTo(LatLng(parking.latitude, parking.longitude));
+                  onTap: () async {
+                    final dest = LatLng(parking.latitude, parking.longitude);
+                    await _toggleNavigationTo(dest, parking.name);
                   },
                   child: Container(
                     padding: const EdgeInsets.all(8),

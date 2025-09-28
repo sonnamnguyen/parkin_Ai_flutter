@@ -21,13 +21,18 @@ class DistanceMatrixService {
     });
 
     try {
+      print('DistanceMatrix API URL: $uri');
       final resp = await http.get(uri);
+      print('DistanceMatrix API response status: ${resp.statusCode}');
+      print('DistanceMatrix API response body: ${resp.body}');
+      
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body) as Map<String, dynamic>;
         return DistanceMatrixResult.fromJson(data);
       }
       return null;
-    } catch (_) {
+    } catch (e) {
+      print('DistanceMatrix API error: $e');
       return null;
     }
   }

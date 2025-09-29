@@ -48,6 +48,9 @@ class ApiEndpoints {
   static const String nearbyServices = '/services/nearby';
   static String serviceDetail(int id) => '/services/$id';
   static const String bookService = '/services/book';
+  // Other services (per lot) and service orders
+  static const String otherServices = '/others-services';
+  static const String serviceOrders = '/service-orders';
   
   // Notification endpoints
   static const String notifications = '/notifications';
@@ -61,5 +64,8 @@ class ApiEndpoints {
   // Favorites endpoints (backend: /favorites)
   static const String favorites = '/favorites';
   static String favoriteDetail(int id) => '/favorites/$id';
+
+  // Payment endpoints
+  static const String createPaymentLink = '/create-payment-link';
 }
 

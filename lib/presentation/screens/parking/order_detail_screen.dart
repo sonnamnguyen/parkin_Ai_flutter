@@ -5,6 +5,12 @@ import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
 import '../../../data/models/parking_order_model.dart';
 import '../../../core/services/parking_order_service.dart';
+import '../../../core/services/payment_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../routes/app_routes.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:async';
+import 'package:flutter/services.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../core/services/vehicle_service.dart';
 import '../../../data/models/vehicle_model.dart';
@@ -25,6 +31,7 @@ class OrderDetailScreen extends StatefulWidget {
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   final ParkingOrderService _orderService = ParkingOrderService();
+  final PaymentService _paymentService = PaymentService();
   final VehicleService _vehicleService = VehicleService();
   DateTime selectedDate = DateTime.now();
   TimeOfDay startTime = TimeOfDay.now();
@@ -334,7 +341,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Dịch vụ đặt xe',
+            'Chọn xe của bạn',
             style: AppThemes.headingSmall.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -342,24 +349,61 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           const SizedBox(height: 16),
           _loadingVehicles
               ? const Center(child: CircularProgressIndicator())
-              : DropdownButtonFormField<Vehicle>(
-                  value: _selectedVehicle,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: AppColors.lightGrey,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                  ),
-                  hint: const Text('Chọn xe của bạn'),
-                  items: _vehicles.map((v) => DropdownMenuItem<Vehicle>(
-                    value: v,
-                    child: Text('${v.displayName} • ${v.licensePlate}'),
-                  )).toList(),
-                  onChanged: (v) => setState(() { _selectedVehicle = v; }),
-                ),
+              : (_vehicles.isEmpty
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Vui lòng tạo xe',
+                            style: AppThemes.bodyMedium.copyWith(
+                              color: AppColors.info,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Vui lòng tạo xe')),
+                              );
+                              await Navigator.of(context).pushNamed(AppRoutes.myCars);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Tạo xe'),
+                          ),
+                        ),
+                      ],
+                    )
+                  : DropdownButtonFormField<Vehicle>(
+                      value: _selectedVehicle,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: AppColors.lightGrey,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                      ),
+                      hint: const Text('Vui lòng chọn xe'),
+                      items: _vehicles.map((v) => DropdownMenuItem<Vehicle>(
+                        value: v,
+                        child: Text('${v.displayName} • ${v.licensePlate}'),
+                      )).toList(),
+                      onChanged: (v) => setState(() { _selectedVehicle = v; }),
+                    )),
         ],
       ),
     );
@@ -511,7 +555,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       print('=== CREATING PARKING ORDER ===');
       
       // Create start and end DateTime
-      final DateTime startDateTime = DateTime(
+      DateTime startDateTime = DateTime(
         selectedDate.year,
         selectedDate.month,
         selectedDate.day,
@@ -519,13 +563,30 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         startTime.minute,
       );
       
-      final DateTime endDateTime = DateTime(
+      DateTime endDateTime = DateTime(
         selectedDate.year,
         selectedDate.month,
         selectedDate.day,
         endTime.hour,
         endTime.minute,
       );
+
+      // Ensure start time is in the future (server validates this)
+      final DateTime nowLocal = DateTime.now();
+      final DateTime minAllowedStart = nowLocal.add(const Duration(minutes: 2));
+      if (startDateTime.isBefore(minAllowedStart)) {
+        // Shift start to at least 2 minutes in the future and keep the original duration
+        final Duration originalDuration = endDateTime.difference(startDateTime);
+        startDateTime = minAllowedStart;
+        endDateTime = startDateTime.add(originalDuration);
+      }
+
+      // Ensure end time is after start and at least 30 minutes duration
+      if (!endDateTime.isAfter(startDateTime)) {
+        endDateTime = startDateTime.add(const Duration(minutes: 30));
+      } else if (endDateTime.difference(startDateTime).inMinutes < 30) {
+        endDateTime = startDateTime.add(const Duration(minutes: 30));
+      }
       
       // Format dates for API
       final String startTimeStr = startDateTime.toIso8601String().replaceAll('T', ' ').substring(0, 19);
@@ -549,11 +610,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       print('=== ORDER CREATED ===');
       print('Order ID: ${order.id}');
       
-      // Navigate to payment with order details
-      Navigator.of(context).pushNamed('/payment', arguments: {
-        'order': order,
-        'parkingLot': widget.parkingLot,
-        'selectedSlot': widget.selectedSlot,
+      // Create payment link using the returned order id
+      final payment = await _paymentService.createPaymentLink(
+        orderType: 'parking',
+        orderId: order.id,
+      );
+
+      // Navigate to dedicated payment screen with QR and auto-open
+      if (!mounted) return;
+      Navigator.of(context).pushNamed(AppRoutes.payment, arguments: {
+        'orderId': order.id,
+        'checkoutUrl': payment.checkoutUrl,
+        'qrCode': payment.qrCode,
+        'amount': payment.amount,
       });
       
     } catch (e) {
@@ -569,5 +638,68 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     } finally {
       if (mounted) setState(() { _creating = false; });
     }
+  }
+}
+
+class _PaymentDialog extends StatefulWidget {
+  final String checkoutUrl;
+  final String qrData;
+  final VoidCallback onOpenCheckout;
+  final VoidCallback onClose;
+
+  const _PaymentDialog({
+    required this.checkoutUrl,
+    required this.qrData,
+    required this.onOpenCheckout,
+    required this.onClose,
+  });
+
+  @override
+  State<_PaymentDialog> createState() => _PaymentDialogState();
+}
+
+class _PaymentDialogState extends State<_PaymentDialog> {
+  bool _copied = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Thanh toán'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // QR code for scanning
+          QrImageView(
+            data: widget.qrData,
+            version: QrVersions.auto,
+            size: 200,
+          ),
+          const SizedBox(height: 12),
+          const Text('Quét QR để thanh toán hoặc mở trang thanh toán'),
+          const SizedBox(height: 8),
+          SelectableText(
+            widget.checkoutUrl,
+            style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: widget.checkoutUrl));
+            setState(() => _copied = true);
+          },
+          child: Text(_copied ? 'Đã sao chép' : 'Sao chép link'),
+        ),
+        TextButton(
+          onPressed: widget.onOpenCheckout,
+          child: const Text('Mở trang thanh toán'),
+        ),
+        TextButton(
+          onPressed: widget.onClose,
+          child: const Text('Đóng'),
+        ),
+      ],
+    );
   }
 }

@@ -130,8 +130,22 @@ class NotificationService {
     final NotificationType type = _mapType(rawType);
     final String title = _buildTitle(type, json);
     final String message = (json['content'] as String?) ?? '';
-    final String createdAtRaw = (json['created_at'] as String?) ?? '';
-    final DateTime createdAt = _parseBackendDate(createdAtRaw);
+    final String createdAtRaw =
+        (json['notification_date'] as String?) ??
+        (json['created_at'] as String?) ??
+        (json['createdAt'] as String?) ??
+        '';
+    DateTime createdAt = _parseBackendDate(createdAtRaw);
+    // Safeguard: some backends send placeholder 2006-01-02 15:04:05
+    if (createdAt.year == 2006) {
+      final String? alt = (json['updated_at'] as String?) ?? (json['updatedAt'] as String?);
+      if (alt != null && alt.isNotEmpty) {
+        final parsedAlt = _parseBackendDate(alt);
+        if (parsedAlt.year != 2006) {
+          createdAt = parsedAlt;
+        }
+      }
+    }
 
     return NotificationModel(
       id: (json['id'] as num).toInt(),
@@ -177,16 +191,29 @@ class NotificationService {
   }
 
   DateTime _parseBackendDate(String raw) {
-    // Expected: yyyy-MM-dd HH:mm:ss
+    // Treat plain timestamps (no timezone) as local time.
+    // Support fractional seconds like: 2025-09-07 01:18:59.769184
     try {
-      final formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
-      return formatter.parseUtc(raw).toLocal();
-    } catch (_) {
-      try {
-        return DateTime.parse(raw);
-      } catch (_) {
-        return DateTime.now();
+      final tzRegex = RegExp(r'(Z|[+-]\d{2}:?\d{2})$');
+      final hasTimezone = tzRegex.hasMatch(raw);
+
+      // Try explicit formats without timezone (local time)
+      final formats = <DateFormat>[
+        DateFormat('yyyy-MM-dd HH:mm:ss.SSSSSS'),
+        DateFormat('yyyy-MM-dd HH:mm:ss.SSS'),
+        DateFormat('yyyy-MM-dd HH:mm:ss'),
+      ];
+      for (final f in formats) {
+        try {
+          return f.parse(raw); // parse as local
+        } catch (_) {}
       }
+
+      // Fallback to DateTime.parse for ISO strings; convert to local only if tz present
+      final dt = DateTime.parse(raw);
+      return hasTimezone ? dt.toLocal() : dt;
+    } catch (_) {
+      return DateTime.now();
     }
   }
 }

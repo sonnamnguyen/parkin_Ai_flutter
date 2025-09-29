@@ -5,6 +5,7 @@ import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../core/services/parking_slot_service.dart';
+import '../../../core/services/other_services_service.dart';
 
 class SlotSelectionScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -29,6 +30,12 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   // Filter options
   final List<String> _slotTypes = ['standard', 'large'];
   final List<String> _floors = ['1', '2', '3', '4', '5'];
+
+  // Other services
+  bool _showOtherServices = false;
+  final OtherServicesService _otherService = OtherServicesService();
+  List<OtherServiceItem> _otherServices = [];
+  bool _loadingOtherServices = false;
 
   @override
   void initState() {
@@ -117,9 +124,15 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                       ? Center(child: Text(_error!))
                       : Column(
                           children: [
+                            _buildOtherServicesToggle(),
+                            const SizedBox(height: 8),
                             _buildSlotGrid(),
                             const SizedBox(height: 20),
                             if (selectedSlot != null) _buildSelectedSlotInfo(),
+                            if (_showOtherServices) ...[
+                              const SizedBox(height: 24),
+                              _buildOtherServicesList(),
+                            ],
                           ],
                         ),
             ),
@@ -481,5 +494,118 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
         'selectedSlot': selectedSlot,
       },
     );
+  }
+
+  Widget _buildOtherServicesToggle() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text('Dịch vụ khác tại bãi', style: AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+        Switch(
+          value: _showOtherServices,
+          onChanged: (val) async {
+            setState(() { _showOtherServices = val; });
+            if (val && _otherServices.isEmpty) {
+              setState(() { _loadingOtherServices = true; });
+              try {
+                final resp = await _otherService.getOtherServices(lotId: widget.parkingLot.id, isActive: true, page: 1, pageSize: 10);
+                setState(() { _otherServices = resp.list; });
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không tải được dịch vụ khác: $e')));
+                }
+              } finally {
+                if (mounted) setState(() { _loadingOtherServices = false; });
+              }
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOtherServicesList() {
+    if (_loadingOtherServices) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_otherServices.isEmpty) {
+      return Text('Không có dịch vụ khác', style: AppThemes.bodyMedium.copyWith(color: AppColors.textSecondary));
+    }
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _otherServices.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final service = _otherServices[index];
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(color: AppColors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(service.name, style: AppThemes.bodyLarge.copyWith(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(service.description, style: AppThemes.bodySmall.copyWith(color: AppColors.textSecondary)),
+                    const SizedBox(height: 8),
+                    Text('Giá: ${service.price} VNĐ • ${service.durationMinutes} phút', style: AppThemes.bodySmall),
+                  ],
+                ),
+              ),
+              CustomButton(
+                text: 'Đặt',
+                onPressed: () => _orderOtherService(service),
+                width: 100,
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _orderOtherService(OtherServiceItem service) async {
+    try {
+      // If parking order flow already has a selected time, reuse; else default now + 10 min
+      final DateTime scheduled = DateTime.now().add(const Duration(minutes: 10));
+      final String scheduledStr = scheduled.toIso8601String().replaceAll('T', ' ').substring(0, 19);
+
+      // Need vehicle_id; navigate to pick if not available? For now, show error if missing
+      // In a full flow, we would fetch user's default vehicle.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đang tạo đơn dịch vụ...')));
+
+      // For MVP, require selectedSlot != null to infer lotId
+      final lotId = widget.parkingLot.id;
+      final vehicleId = 1; // TODO: integrate actual selected vehicle
+
+      final orderId = await _otherService.createServiceOrder(
+        vehicleId: vehicleId,
+        lotId: lotId,
+        serviceId: service.id,
+        scheduledTime: scheduledStr,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tạo đơn dịch vụ #$orderId')));
+      // Navigate to payment screen using existing payment link flow
+      Navigator.of(context).pushNamed('/payment', arguments: {
+        'orderId': orderId,
+        'checkoutUrl': '',
+        'qrCode': '',
+        'amount': service.price,
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi tạo đơn dịch vụ: $e')));
+    }
   }
 }

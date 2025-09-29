@@ -1501,7 +1501,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // Vehicle Card Overlay - positioned under search panel in navigation mode, or in original position
                 if (_selectedParking != null)
                   Positioned(
-                    top: _isInNavigationMode ? 80 : 16, // Move down when in navigation mode to appear under search
+                    top: _isInNavigationMode ? 95 : 16, // Move down when in navigation mode to appear under search
                     left: 16,
                     right: 16,
                     child: _buildVehicleCard(parking: _selectedParking!),
@@ -1609,27 +1609,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                // Logout button overlay (when session expired)
-                if (_showLogoutButton)
-                  Positioned(
-                    top: 20,
-                    right: 16,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.error,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                  ),
-              ],
-            ),
-                    ),
-                  ),
-
                 // Top origin/destination panel in navigation mode (hidden during active navigation)
                 if (_isInNavigationMode && !_isNavigating)
                   Positioned(
@@ -1646,9 +1625,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: AppColors.black.withOpacity(0.08),
                             blurRadius: 10,
                             offset: const Offset(0,2),
-                          ),
-                        ],
-                      ),
+                  ),
+              ],
+            ),
                       child: Row(
                         children: [
                           // Origin input

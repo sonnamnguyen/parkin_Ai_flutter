@@ -20,6 +20,7 @@ import '../data/models/vehicle_model.dart';
 import '../presentation/screens/parking/rating_comments_screen.dart';
 import '../presentation/screens/parking/order_history_screen.dart';
 import '../presentation/screens/parking/order_view_screen.dart';
+import '../presentation/screens/parking/other_service_order_screen.dart';
 import '../presentation/screens/favorites/favorites_screen.dart';
 import '../main.dart';
 
@@ -130,6 +131,19 @@ class RouteGenerator {
         return MaterialPageRoute(
           builder: (_) => const PaymentScreen(),
         );
+
+      case AppRoutes.otherServiceOrder:
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => OtherServiceOrderScreen(
+              lotId: args['lotId'] as int,
+              serviceId: args['serviceId'] as int,
+              price: args['price'] as int,
+              vehicleId: args['vehicleId'] as int?,
+            ),
+          );
+        }
+        return _errorRoute();
 
       case AppRoutes.ratingComments:
         if (args is ParkingLot) {

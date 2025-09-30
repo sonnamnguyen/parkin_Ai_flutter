@@ -18,6 +18,7 @@ import '../../../data/models/parking_hours_model.dart';
 import '../../../core/services/parking_lot_service.dart';
 import '../../../core/services/directions_service.dart';
 import '../../../core/services/distance_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../routes/app_routes.dart';
 import '../../../core/constants/api_config.dart';
 // Using PNG raster for car icon; if you add assets/images/car.png it will be used
@@ -68,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _directionsDestinationName;
   // Session state
   bool _showLogoutButton = false;
+  bool _hasUnreadNotifications = false;
   // Navigation mode state
   bool _isInNavigationMode = false;
   bool _isNavigating = false;
@@ -104,6 +106,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation();
+    _checkUnreadNotifications();
+    
+    // Set up periodic refresh of notification status
+    Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) {
+        _checkUnreadNotifications();
+      } else {
+        timer.cancel();
+      }
+    });
     
     // Add listener to search controller to update UI and clear visuals when empty
     _searchController.addListener(() {
@@ -1501,7 +1513,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // Vehicle Card Overlay - positioned under search panel in navigation mode, or in original position
                 if (_selectedParking != null)
                   Positioned(
-                    top: _isInNavigationMode ? 80 : 16, // Move down when in navigation mode to appear under search
+                    top: _isInNavigationMode ? 95 : 16, // Move down when in navigation mode to appear under search
                     left: 16,
                     right: 16,
                     child: _buildVehicleCard(parking: _selectedParking!),
@@ -1609,27 +1621,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                // Logout button overlay (when session expired)
-                if (_showLogoutButton)
-                  Positioned(
-                    top: 20,
-                    right: 16,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.error,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                  ),
-              ],
-            ),
-                    ),
-                  ),
-
                 // Top origin/destination panel in navigation mode (hidden during active navigation)
                 if (_isInNavigationMode && !_isNavigating)
                   Positioned(
@@ -1646,9 +1637,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: AppColors.black.withOpacity(0.08),
                             blurRadius: 10,
                             offset: const Offset(0,2),
-                          ),
-                        ],
-                      ),
+                  ),
+              ],
+            ),
                       child: Row(
                         children: [
                           // Origin input
@@ -2143,7 +2134,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
         return Row(
           children: [
-            // Menu Button
+            // Menu Button with red dot indicator
+            Stack(
+              children: [
             Container(
               width: 40,
               height: 40,
@@ -2163,6 +2156,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   scaffoldState?.openDrawer();
                 },
               ),
+                ),
+                // Red dot indicator for unread notifications
+                if (_hasUnreadNotifications)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppColors.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
             ),
 
             const SizedBox(width: 12),
@@ -2767,5 +2776,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     score += (parking.rating / 5.0) * 10;
     
     return score;
+  }
+
+  Future<void> _checkUnreadNotifications() async {
+    try {
+      final userId = Provider.of<AuthProvider>(context, listen: false).user?.id;
+      if (userId == null) return;
+      
+      final NotificationService notificationService = NotificationService();
+      final notifications = await notificationService.getNotifications(
+        userId: userId,
+        page: 1,
+        pageSize: 100, // Get more notifications to check read status
+      );
+      
+      final hasUnread = notifications.any((notification) => !notification.isRead);
+      
+      if (mounted) {
+        setState(() {
+          _hasUnreadNotifications = hasUnread;
+        });
+      }
+    } catch (e) {
+      // Handle error silently - don't show red dot if we can't check
+      if (mounted) {
+        setState(() {
+          _hasUnreadNotifications = false;
+        });
+      }
+    }
   }
 }

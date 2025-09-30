@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../widgets/common/custom_button.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
@@ -11,8 +12,29 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  String selectedPaymentMethod = 'wallet';
+  String selectedPaymentMethod = 'qr';
   bool isProcessing = false;
+  late final int? orderId;
+  late final String? checkoutUrl;
+  late final String? qrCode;
+  late final int? amount;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map<String, dynamic>) {
+      orderId = args['orderId'] as int?;
+      checkoutUrl = args['checkoutUrl'] as String?;
+      qrCode = args['qrCode'] as String?;
+      amount = args['amount'] as int?;
+    } else {
+      orderId = null;
+      checkoutUrl = null;
+      qrCode = null;
+      amount = null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,9 +64,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildPaymentCard(),
-                  const SizedBox(height: 24),
-                  _buildPaymentMethods(),
+                  _buildPaymentSummary(),
                   const SizedBox(height: 24),
                   _buildQRPayment(),
                 ],
@@ -57,75 +77,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Widget _buildPaymentCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1e3c72), Color(0xFF2a5298)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.credit_card,
-                color: AppColors.white,
-                size: 24,
-              ),
-              const Spacer(),
-              Text(
-                'VISA',
-                style: AppThemes.headingSmall.copyWith(
-                  color: AppColors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            '**** **** **** 6478',
-            style: AppThemes.headingMedium.copyWith(
-              color: AppColors.white,
-              letterSpacing: 2,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Text(
-                'EXP',
-                style: AppThemes.bodySmall.copyWith(
-                  color: AppColors.white.withOpacity(0.8),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '12/23',
-                style: AppThemes.bodyMedium.copyWith(
-                  color: AppColors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                'Hoàng thanh toán bằng mã QR',
-                style: AppThemes.bodySmall.copyWith(
-                  color: AppColors.white.withOpacity(0.9),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  
 
-  Widget _buildPaymentMethods() {
+  Widget _buildPaymentSummary() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -142,12 +96,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Thẻ',
-            style: AppThemes.headingSmall.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text('Chi tiết thanh toán', style: AppThemes.headingSmall.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           Row(
             children: [
@@ -157,7 +106,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               ),
               const Spacer(),
               Text(
-                '20,000VNĐ',
+                _formatAmount(amount),
                 style: AppThemes.headingSmall.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -192,31 +141,25 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          Container(
-            width: 200,
-            height: 200,
-            decoration: BoxDecoration(
-              color: AppColors.lightGrey,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.qr_code,
-                size: 100,
-                color: AppColors.textSecondary,
+          if ((qrCode ?? checkoutUrl) != null)
+            QrImageView(
+              data: (qrCode?.isNotEmpty == true ? qrCode! : (checkoutUrl ?? '')),
+              version: QrVersions.auto,
+              size: 220,
+            )
+          else
+            Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                color: AppColors.lightGrey,
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
-          ),
           const SizedBox(height: 16),
-          CustomButton(
-            text: 'Quét mã QR',
-            onPressed: () {},
-            type: ButtonType.outline,
-            width: 200,
-          ),
           const SizedBox(height: 12),
           Text(
-            'Hoặc thanh toán bằng mã vạch',
+            'Quét QR để thanh toán bằng ứng dụng ngân hàng',
             style: AppThemes.bodySmall.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -225,13 +168,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                'Tổng tiền',
-                style: AppThemes.bodyMedium,
-              ),
+              Text('Mã đơn', style: AppThemes.bodyMedium),
               const SizedBox(width: 16),
               Text(
-                '20,000VNĐ',
+                (orderId?.toString() ?? '--'),
                 style: AppThemes.headingSmall.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -258,7 +198,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       ),
       child: SafeArea(
         child: CustomButton(
-          text: 'Pay',
+          text: 'Xong',
           onPressed: isProcessing ? null : _processPayment,
           isLoading: isProcessing,
           width: double.infinity,
@@ -273,16 +213,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     });
 
     try {
-      // Simulate payment processing
-      await Future.delayed(const Duration(seconds: 3));
-      
-      if (mounted) {
-        // Navigate to success screen
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/verification-success',
-          (route) => route.settings.name == '/main',
-        );
-      }
+      // Here we could poll order status and close when success.
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -299,5 +233,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
         });
       }
     }
+  }
+
+  String _formatAmount(int? amount) {
+    if (amount == null || amount <= 0) return '--';
+    final s = amount.toString();
+    final re = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+    return s.replaceAllMapped(re, (m) => '${m[1]},') + ' VNĐ';
   }
 }

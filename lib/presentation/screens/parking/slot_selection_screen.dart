@@ -5,6 +5,7 @@ import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../core/services/parking_slot_service.dart';
+import '../../../core/services/other_services_service.dart';
 
 class SlotSelectionScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -30,6 +31,15 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   final List<String> _slotTypes = ['standard', 'large'];
   final List<String> _floors = ['1', '2', '3', '4', '5'];
 
+  // Tab switching
+  int _currentTab = 1; // 1 = parking slots, 2 = other services
+
+  // Other services
+  final OtherServicesService _otherService = OtherServicesService();
+  List<OtherServiceItem> _otherServices = [];
+  bool _loadingOtherServices = false;
+  OtherServiceItem? _selectedService;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +47,7 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     print('Parking Lot: ${widget.parkingLot}');
     print('Parking Lot ID: ${widget.parkingLot.id}');
     _fetchSlots();
+    // Don't fetch other services on init - only when user switches to tab 2
   }
 
   Future<void> _fetchSlots() async {
@@ -79,6 +90,36 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     }
   }
 
+  Future<void> _fetchOtherServices() async {
+    setState(() { _loadingOtherServices = true; });
+    try {
+      print('=== FETCHING OTHER SERVICES ===');
+      print('Parking Lot ID: ${widget.parkingLot.id}');
+      
+      final response = await _otherService.getOtherServices(
+        lotId: widget.parkingLot.id,
+        isActive: true,
+        page: 1,
+        pageSize: 10,
+      );
+      
+      print('=== OTHER SERVICES FETCHED ===');
+      print('Number of services: ${response.list.length}');
+      
+      setState(() { _otherServices = response.list; });
+    } catch (e) {
+      print('=== ERROR FETCHING OTHER SERVICES ===');
+      print('Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Không tải được dịch vụ khác: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() { _loadingOtherServices = false; });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,34 +142,199 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
       ),
       body: Column(
         children: [
-          // Legend
-          _buildLegend(),
+          // Tab Switcher
+          _buildTabSwitcher(),
           
-          // Filters
-          _buildFilters(),
-          
-          // Slot Grid
+          // Content based on selected tab
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                      ? Center(child: Text(_error!))
-                      : Column(
-                          children: [
-                            _buildSlotGrid(),
-                            const SizedBox(height: 20),
-                            if (selectedSlot != null) _buildSelectedSlotInfo(),
-                          ],
-                        ),
-            ),
+            child: _currentTab == 1 ? _buildParkingSlotContent() : _buildOtherServicesContent(),
           ),
         ],
       ),
       
       // Bottom Action Bar
-      bottomNavigationBar: selectedSlot != null ? _buildBottomActionBar() : null,
+      bottomNavigationBar: (selectedSlot != null || _selectedService != null) ? _buildBottomActionBar() : null,
+    );
+  }
+
+  Widget _buildTabSwitcher() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() { _currentTab = 1; }),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: _currentTab == 1 ? AppColors.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '1. Chỗ đậu',
+                  textAlign: TextAlign.center,
+                  style: AppThemes.bodyLarge.copyWith(
+                    color: _currentTab == 1 ? AppColors.white : AppColors.darkGrey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() { _currentTab = 2; });
+                // Load other services only when user switches to tab 2
+                if (_otherServices.isEmpty && !_loadingOtherServices) {
+                  _fetchOtherServices();
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: _currentTab == 2 ? AppColors.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '2. Dịch vụ khác',
+                  textAlign: TextAlign.center,
+                  style: AppThemes.bodyLarge.copyWith(
+                    color: _currentTab == 2 ? AppColors.white : AppColors.darkGrey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParkingSlotContent() {
+    return Column(
+      children: [
+        // Legend
+        _buildLegend(),
+        
+        // Filters
+        _buildFilters(),
+        
+        // Slot Grid
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!))
+                    : Column(
+                        children: [
+                          _buildSlotGrid(),
+                          const SizedBox(height: 20),
+                          if (selectedSlot != null) _buildSelectedSlotInfo(),
+                        ],
+                      ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOtherServicesContent() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: _loadingOtherServices
+          ? const Center(child: CircularProgressIndicator())
+          : _otherServices.isEmpty
+              ? _buildOtherServicesEmptyState()
+              : ListView.separated(
+                  itemCount: _otherServices.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final service = _otherServices[index];
+                    final isSelected = _selectedService?.id == service.id;
+                    return GestureDetector(
+                      onTap: () => setState(() { _selectedService = service; }),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isSelected ? AppColors.primary.withOpacity(0.1) : AppColors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: isSelected 
+                              ? Border.all(color: AppColors.primary, width: 2)
+                              : Border.all(color: AppColors.lightGrey),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.black.withOpacity(0.05),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    service.name,
+                                    style: AppThemes.bodyLarge.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: isSelected ? AppColors.primary : AppColors.darkGrey,
+                                    ),
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Icon(Icons.check_circle, color: AppColors.primary, size: 20),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              service.description,
+                              style: AppThemes.bodyMedium.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Giá: ${service.price} VNĐ',
+                                  style: AppThemes.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                Text(
+                                  '${service.durationMinutes} phút',
+                                  style: AppThemes.bodySmall.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 
@@ -459,8 +665,8 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
       ),
       child: SafeArea(
         child: CustomButton(
-          text: 'Tiếp tục',
-          onPressed: () => _navigateToOrderDetail(),
+          text: _currentTab == 1 ? 'Tiếp tục' : 'Đặt dịch vụ',
+          onPressed: () => _currentTab == 1 ? _navigateToOrderDetail() : _navigateToServiceOrder(),
           width: double.infinity,
         ),
       ),
@@ -482,4 +688,49 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
       },
     );
   }
+
+  void _navigateToServiceOrder() {
+    if (_selectedService == null) return;
+    
+    Navigator.of(context).pushNamed(
+      '/other-service-order',
+      arguments: {
+        'lotId': widget.parkingLot.id,
+        'serviceId': _selectedService!.id,
+        'price': _selectedService!.price,
+        'vehicleId': 1, // TODO: integrate actual selected vehicle
+      },
+    );
+  }
+
+  Widget _buildOtherServicesEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.local_offer_outlined,
+            size: 80,
+            color: AppColors.textSecondary.withOpacity(0.3),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Không có dịch vụ',
+            style: AppThemes.headingSmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Bãi đỗ xe này chưa có dịch vụ khác',
+            style: AppThemes.bodyMedium.copyWith(
+              color: AppColors.textSecondary.withOpacity(0.7),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
 }

@@ -24,6 +24,7 @@ class AppRoutes {
   static const String schedule = '/schedule';
   static const String payment = '/payment';
   static const String ticket = '/ticket';
+  static const String otherServiceOrder = '/other-service-order';
 
   // Search routes
   static const String search = '/search';

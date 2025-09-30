@@ -251,6 +251,12 @@ class ParkingLot {
         if (parts.length >= 2) {
           final hour = int.tryParse(parts[0]) ?? 0;
           final minute = int.tryParse(parts[1]) ?? 0;
+          
+          // Check if this is a placeholder time (15:04:05 is Go's default time)
+          if (hour == 15 && minute == 4) {
+            return '24/7'; // Show 24/7 for placeholder times
+          }
+          
           return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
         }
       }

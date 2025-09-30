@@ -166,11 +166,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           Icon(
             Icons.notifications_none,
             size: 80,
-            color: AppColors.textSecondary.withOpacity(0.5),
+            color: AppColors.textSecondary.withOpacity(0.3),
           ),
           const SizedBox(height: 16),
           Text(
-            'Không có thông báo',
+            'Hiện giờ chưa có thông báo',
             style: AppThemes.headingSmall.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -317,6 +317,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           );
         }
       });
+      
+      // Refresh notification status in main screen
+      // Note: This will be handled by the periodic refresh in home screen
     } catch (_) {
       // ignore for now
     }
@@ -341,6 +344,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           );
         }
       });
+      
+      // Refresh notification status in main screen
+      // Note: This will be handled by the periodic refresh in home screen
     } catch (_) {}
   }
 }

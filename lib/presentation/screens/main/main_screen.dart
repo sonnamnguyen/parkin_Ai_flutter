@@ -8,6 +8,7 @@ import '../profile/my_cars_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../wallet/wallet_screen.dart';
 import '../../providers/auth_provider.dart';
+import '../../../core/services/notification_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -20,6 +21,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   int _currentIndex = 0;
   late AnimationController _animationController;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _hasUnreadNotifications = false;
 
   // Create a static method to open drawer from anywhere
   static _MainScreenState? _instance;
@@ -32,6 +34,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
+    _checkUnreadNotifications();
   }
 
   @override
@@ -45,6 +48,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   static void openDrawer() {
     _instance?._scaffoldKey.currentState?.openDrawer();
   }
+
 
   void _onNavigationTapped(int index) {
     if (_currentIndex != index) {
@@ -136,7 +140,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                             1,
                          
                           ),
-                          _buildNavigationItem(
+                          _buildNavigationItemWithBadge(
                             Icons.notifications_outlined,
                             Icons.notifications,
                             AppStrings.notifications,
@@ -544,6 +548,104 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             child: const Text('Logout'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _checkUnreadNotifications() async {
+    try {
+      final userId = Provider.of<AuthProvider>(context, listen: false).user?.id;
+      if (userId == null) return;
+      
+      final NotificationService notificationService = NotificationService();
+      final notifications = await notificationService.getNotifications(
+        userId: userId,
+        page: 1,
+        pageSize: 100, // Get more notifications to check read status
+      );
+      
+      final hasUnread = notifications.any((notification) => !notification.isRead);
+      
+      if (mounted) {
+        setState(() {
+          _hasUnreadNotifications = hasUnread;
+        });
+      }
+    } catch (e) {
+      // Handle error silently - don't show red dot if we can't check
+      if (mounted) {
+        setState(() {
+          _hasUnreadNotifications = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildNavigationItemWithBadge(
+    IconData icon,
+    IconData activeIcon,
+    String label,
+    int index,
+  ) {
+    final isActive = _currentIndex == index;
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _onNavigationTapped(index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            decoration: BoxDecoration(
+              color: isActive 
+                  ? AppColors.primary.withOpacity(0.1) 
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: isActive 
+                  ? Border.all(color: AppColors.primary.withOpacity(0.3))
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    Icon(
+                      isActive ? activeIcon : icon,
+                      color: isActive ? AppColors.primary : AppColors.textSecondary,
+                      size: 24,
+                    ),
+                    if (_hasUnreadNotifications && index == 2) // Only for notifications
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.error,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppThemes.bodyLarge.copyWith(
+                      color: isActive ? AppColors.primary : AppColors.textSecondary,
+                      fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

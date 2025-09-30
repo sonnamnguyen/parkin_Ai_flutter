@@ -65,7 +65,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _error != null
                 ? Center(child: Text(_error!))
-                : ListView.separated(
+                : _items.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: _items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -212,6 +214,36 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         SnackBar(content: Text('Không mở được chi tiết: $e')),
       );
     }
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.favorite_border,
+            size: 80,
+            color: AppColors.textSecondary.withOpacity(0.3),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Danh sách yêu thích trống',
+            style: AppThemes.headingSmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Các bãi đỗ xe yêu thích sẽ xuất hiện tại đây',
+            style: AppThemes.bodyMedium.copyWith(
+              color: AppColors.textSecondary.withOpacity(0.7),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
   }
 }
 

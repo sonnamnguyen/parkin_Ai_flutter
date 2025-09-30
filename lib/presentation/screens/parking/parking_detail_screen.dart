@@ -516,21 +516,21 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
           child: Row(
             children: [
               Icon(
-                parkingLot.isOpen ? Icons.access_time : Icons.access_time_filled,
-                color: parkingLot.isOpen ? AppColors.success : AppColors.error,
+                _getStatusIcon(parkingLot),
+                color: _getStatusColor(parkingLot),
                 size: 20,
               ),
               const SizedBox(width: 12),
               Text(
-                parkingLot.isOpen ? 'Đang mở cửa' : 'Đã đóng cửa',
+                _getStatusText(parkingLot),
                 style: AppThemes.bodyMedium.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: parkingLot.isOpen ? AppColors.success : AppColors.error,
+                  color: _getStatusColor(parkingLot),
                 ),
               ),
               const Spacer(),
               Text(
-                parkingLot.operatingHours?.getTodayHours() ?? 'N/A',
+                _getOperatingHoursText(parkingLot),
                 style: AppThemes.bodyMedium,
               ),
             ],
@@ -538,6 +538,75 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
         ),
       ],
     );
+  }
+
+  String _getOperatingHoursText(ParkingLot parkingLot) {
+    // Check if we have valid operating hours
+    if (parkingLot.openTime.isNotEmpty && parkingLot.closeTime.isNotEmpty) {
+      // Check if both times are placeholder (15:04:05)
+      if (parkingLot.openTime == '24/7' && parkingLot.closeTime == '24/7') {
+        return '24/7';
+      }
+      
+      // Check if times are the same (24/7 operation)
+      if (parkingLot.openTime == parkingLot.closeTime) {
+        return '24/7';
+      }
+      
+      // Show normal hours
+      return '${parkingLot.openTime} - ${parkingLot.closeTime}';
+    }
+    
+    // Fallback to operating hours object if available
+    if (parkingLot.operatingHours != null) {
+      return parkingLot.operatingHours!.getTodayHours();
+    }
+    
+    return 'N/A';
+  }
+
+  String _getStatusText(ParkingLot parkingLot) {
+    // Check if it's 24/7 operation
+    if (_is24Hours(parkingLot)) {
+      return 'Luôn mở cửa';
+    }
+    
+    // Regular status based on isOpen
+    return parkingLot.isOpen ? 'Đang mở cửa' : 'Đã đóng cửa';
+  }
+
+  Color _getStatusColor(ParkingLot parkingLot) {
+    // Check if it's 24/7 operation
+    if (_is24Hours(parkingLot)) {
+      return AppColors.success; // Green for always open
+    }
+    
+    // Regular status color
+    return parkingLot.isOpen ? AppColors.success : AppColors.error;
+  }
+
+  bool _is24Hours(ParkingLot parkingLot) {
+    // Check if both times are placeholder (15:04:05) or formatted as 24/7
+    if (parkingLot.openTime == '24/7' && parkingLot.closeTime == '24/7') {
+      return true;
+    }
+    
+    // Check if times are the same (24/7 operation)
+    if (parkingLot.openTime == parkingLot.closeTime && parkingLot.openTime.isNotEmpty) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  IconData _getStatusIcon(ParkingLot parkingLot) {
+    // Check if it's 24/7 operation
+    if (_is24Hours(parkingLot)) {
+      return Icons.schedule; // Clock icon for 24/7
+    }
+    
+    // Regular status icon
+    return parkingLot.isOpen ? Icons.access_time : Icons.access_time_filled;
   }
 
   Widget _buildBottomActionBar(ParkingLot parkingLot) {

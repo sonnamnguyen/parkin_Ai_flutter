@@ -87,6 +87,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isFollowingCamera = false;
   StreamSubscription<Position>? _locationSubscription;
   
+  // Real-time navigation tracking
+  bool _isRealTimeTracking = false;
+  Timer? _realTimeTrackingTimer;
+  static const double _arrivalThresholdMeters = 50.0;
+  Position? _lastRouteUpdatePosition;
+  bool _preserveRouteLineOnUpdate = false;
+  bool _hasTriggeredArrival = false; // Prevent multiple arrival notifications
+  
+  // Real-time route drawing
+  List<LatLng> _traveledPath = [];
+  Line? _traveledRouteLine;
+  List<LatLng> _fullRoutePoints = [];
+  bool _drawRouteRealTime = false;
+  int _currentRoutePointIndex = 0;
+  Timer? _routeProgressTimer;
+  
   // Instruction preview mode
   bool _isPreviewMode = false;
   int _previewStepIndex = 0;
@@ -134,6 +150,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _searchController.dispose();
     _navigationTimer?.cancel();
     _positionSub?.cancel();
+    _locationSubscription?.cancel();
+    _realTimeTrackingTimer?.cancel();
+    _routeProgressTimer?.cancel();
+    _traveledPath.clear();
+    _fullRoutePoints.clear();
+    _currentRoutePointIndex = 0;
     _isMapReady = false;
     _symbolIdToParking.clear();
     _mapController = null;
@@ -186,14 +208,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _navigationSteps.clear();
       _currentStepIndex = 0;
       _previewStepIndex = 0;
+      _drawRouteRealTime = false;
+      _hasTriggeredArrival = false; // Reset arrival flag when exiting navigation
     });
     _navigationTimer?.cancel();
     _navigationTimer = null;
+    _stopRealTimeTracking();
     _locationSubscription?.cancel();
     if (_routeLine != null && _mapController != null) {
       try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
       _routeLine = null;
     }
+    // Remove traveled route line
+    if (_traveledRouteLine != null && _mapController != null) {
+      try { await _mapController!.removeLine(_traveledRouteLine!); } catch (_) {}
+      _traveledRouteLine = null;
+    }
+    // Clear traveled path and stop progressive drawing
+    _traveledPath.clear();
+    _fullRoutePoints.clear();
+    _stopProgressiveRouteDrawing();
     // Remove route markers
     await _removeRouteMarkers();
   }
@@ -258,7 +292,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _isFollowingCamera = true;
       _currentStepIndex = 0;
       _currentInstruction = _navigationSteps[0]['instruction'];
+      _drawRouteRealTime = true;
+      _hasTriggeredArrival = false; // Reset arrival flag for new navigation
     });
+    
+    // Remove existing route line immediately to prepare for progressive drawing
+    _removeExistingRouteForProgressiveDrawing();
     
     // Focus camera to current location immediately
     if (_currentPosition != null && _mapController != null) {
@@ -270,7 +309,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
     
-    // Start location tracking for step-by-step navigation
+    // Start real-time tracking
+    _startRealTimeTracking();
+    
+    // Initialize progressive route drawing with stored route points
+    if (_fullRoutePoints.isNotEmpty) {
+      debugPrint('[Navigation] Using stored route points for progressive drawing: ${_fullRoutePoints.length} points');
+      _initializeRealTimeRouteDrawing();
+    } else {
+      debugPrint('[Navigation] No stored route points available - will wait for route API call');
+    }
+    
+    // Start real-time route updates via Goong API (only when navigation instructions begin)
+    _startRealTimeRouteUpdates();
+    
+    // Start location tracking for step-by-step navigation (legacy support)
     _locationSubscription?.cancel();
     _locationSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -282,6 +335,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           _currentPosition = position;
         });
+        
+        // Note: Arrival detection now handled by Goong API in _updateRouteFromCurrentPosition
+        // _checkArrival(position); // Disabled - using Goong API route distance instead
         
         // Update camera to follow user
         if (_mapController != null && _isFollowingCamera) {
@@ -692,25 +748,75 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _drawRouteTo(LatLng destination) async {
+  Future<void> _drawRouteTo(LatLng destination, [String? destinationName, bool updateFromCurrentLocation = false]) async {
+    debugPrint('[Navigation] _drawRouteTo called - drawRouteRealTime: $_drawRouteRealTime, updateFromCurrentLocation: $updateFromCurrentLocation, isNavigating: $_isNavigating');
+    
     if (_mapController == null) return;
     final origin = _directionsOrigin ?? (_currentPosition != null
         ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
         : null);
     if (origin == null) return;
+    
+    // Set navigation destination for arrival detection
+    if (!updateFromCurrentLocation) {
+      _navigationDestination = destination;
+      _navigationDestinationName = destinationName;
+    }
     try {
       final points = await _directionsService.getDrivingRoute(origin: origin, destination: destination);
       if (points.isEmpty) return;
-      // Remove previous
-      if (_routeLine != null) {
-        try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
-        _routeLine = null;
+      
+      // Always store route points for potential progressive drawing
+      if (!updateFromCurrentLocation) {
+        _fullRoutePoints = List.from(points);
+        debugPrint('[Navigation] Stored ${_fullRoutePoints.length} route points for future use');
       }
-      _routeLine = await _mapController!.addLine(LineOptions(
-        geometry: points,
-        lineColor: '#1E88E5',
-        lineWidth: 4.0,
-      ));
+      
+      // If in real-time drawing mode, handle progressive drawing
+      if (_drawRouteRealTime && !updateFromCurrentLocation) {
+        _currentRoutePointIndex = 0;
+        debugPrint('[Navigation] Preparing for progressive drawing with ${_fullRoutePoints.length} points');
+        
+        // Remove any existing route lines
+        if (_routeLine != null) {
+          try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
+          _routeLine = null;
+        }
+        if (_traveledRouteLine != null) {
+          try { await _mapController!.removeLine(_traveledRouteLine!); } catch (_) {}
+          _traveledRouteLine = null;
+        }
+        
+        // Initialize progressive route drawing now that we have the points
+        _initializeRealTimeRouteDrawing();
+        
+        // Don't draw the full route initially - will be revealed progressively
+        return;
+      }
+      
+      // Only remove and redraw route line if this is not a real-time update during navigation
+      // or if we don't have a route line yet
+      if (_routeLine == null || !updateFromCurrentLocation || !_isNavigating) {
+        // Remove previous route line
+        if (_routeLine != null) {
+          try { await _mapController!.removeLine(_routeLine!); } catch (_) {}
+          _routeLine = null;
+        }
+        
+        // Add new route line (only if not in real-time drawing mode)
+        if (!_drawRouteRealTime) {
+          _routeLine = await _mapController!.addLine(LineOptions(
+            geometry: points,
+            lineColor: '#1E88E5',
+            lineWidth: 4.0,
+          ));
+          debugPrint('[Navigation] Route line drawn/updated');
+        } else {
+          debugPrint('[Navigation] Skipping blue route line - real-time drawing mode enabled');
+        }
+      } else {
+        debugPrint('[Navigation] Skipping route line redraw to preserve visibility during navigation');
+      }
       // Fetch time & distance using Goong Directions API
       final origins = '${origin.latitude},${origin.longitude}';
       final destinations = '${destination.latitude},${destination.longitude}';
@@ -899,7 +1005,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
     
-    await _drawRouteTo(_directionsDestination!);
+    await _drawRouteTo(_directionsDestination!, _directionsDestinationName);
   }
 
   void _createStepsFromRoutePoints(List<LatLng> points) {
@@ -952,7 +1058,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
     }
-    await _drawRouteTo(destination);
+    await _drawRouteTo(destination, "Điểm đến");
   }
 
   LatLngBounds _boundsFor(List<LatLng> points) {
@@ -2803,6 +2909,521 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           _hasUnreadNotifications = false;
         });
+      }
+    }
+  }
+
+  void _startRealTimeTracking() {
+    if (_isRealTimeTracking) return;
+    
+    debugPrint('[Navigation] Starting real-time tracking');
+    _isRealTimeTracking = true;
+    
+    // Start location subscription for real-time updates
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // Update every 5 meters
+      ),
+    ).listen((Position position) {
+      _onLocationUpdate(position);
+    });
+  }
+
+  void _stopRealTimeTracking() {
+    if (!_isRealTimeTracking) return;
+    
+    debugPrint('[Navigation] Stopping real-time tracking');
+    _isRealTimeTracking = false;
+    _locationSubscription?.cancel();
+    _locationSubscription = null;
+    _realTimeTrackingTimer?.cancel();
+    _realTimeTrackingTimer = null;
+    _lastRouteUpdatePosition = null;
+    _stopProgressiveRouteDrawing();
+  }
+
+  void _onLocationUpdate(Position position) {
+    if (!_isNavigating || _navigationDestination == null) return;
+    
+    debugPrint('[Navigation] Location update: ${position.latitude}, ${position.longitude}');
+    
+    // Update current position
+    _currentPosition = position;
+    
+    // Update user location marker on map
+    _updateUserLocationMarker(position);
+    
+    // Update real-time route drawing
+    _updateRealTimeRoute(position);
+    
+    // Follow camera if enabled
+    if (_isFollowingCamera && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(position.latitude, position.longitude),
+          18,
+        ),
+      );
+    }
+    
+    // Note: Arrival detection now handled by Goong API route distance
+    // _checkArrival(position); // Disabled - using Goong API route distance instead
+    
+    // Update route less frequently to preserve route line
+    // Only update route every 50+ meters to avoid constantly redrawing
+    _updateRouteFromCurrentLocation(position);
+  }
+
+  void _checkArrival(Position position) {
+    debugPrint('[Navigation] Checking arrival - destination: $_navigationDestination, hasTriggered: $_hasTriggeredArrival');
+    
+    if (_navigationDestination == null) {
+      debugPrint('[Navigation] No navigation destination set - skipping arrival check');
+      return;
+    }
+    
+    if (_hasTriggeredArrival) {
+      debugPrint('[Navigation] Arrival already triggered - skipping check');
+      return;
+    }
+    
+    final distanceToDestination = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      _navigationDestination!.latitude,
+      _navigationDestination!.longitude,
+    );
+    
+    debugPrint('[Navigation] Current position: ${position.latitude}, ${position.longitude}');
+    debugPrint('[Navigation] Destination: ${_navigationDestination!.latitude}, ${_navigationDestination!.longitude}');
+    debugPrint('[Navigation] Distance to destination: ${distanceToDestination.toStringAsFixed(1)}m (threshold: ${_arrivalThresholdMeters}m)');
+    
+    if (distanceToDestination <= _arrivalThresholdMeters) {
+      debugPrint('[Navigation] *** ARRIVAL THRESHOLD REACHED! *** Triggering arrival notification.');
+      _hasTriggeredArrival = true; // Prevent multiple notifications
+      _onArrival();
+    }
+  }
+
+  void _stopNavigation() {
+    debugPrint('[Navigation] Stopping navigation');
+    _exitNavigationMode();
+  }
+
+  void _onArrival() {
+    debugPrint('[Navigation] *** ARRIVED AT DESTINATION! ***');
+    
+    // Stop navigation
+    _stopNavigation();
+    
+    // Show arrival notification
+    _showArrivalNotification();
+  }
+
+  // Manual arrival trigger for testing
+  void _triggerManualArrival() {
+    debugPrint('[Navigation] Manual arrival triggered for testing');
+    if (_isNavigating && !_hasTriggeredArrival) {
+      _hasTriggeredArrival = true;
+      _onArrival();
+    }
+  }
+
+  void _showArrivalNotification() {
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle,
+                color: AppColors.success,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Đã đến nơi!',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Bạn đã đến ${_navigationDestinationName ?? "điểm đến"}. Chúc bạn có một ngày tốt lành!',
+          style: AppThemes.bodyMedium,
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Zoom out to show overview
+              if (_mapController != null && _currentPosition != null) {
+                _mapController!.animateCamera(
+                  CameraUpdate.newLatLngZoom(
+                    LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                    14,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'Hoàn thành',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateRouteFromCurrentLocation(Position position) async {
+    if (_navigationDestination == null || !_isNavigating) return;
+    
+    // Only update route every 50 meters or if significantly off course
+    // to avoid constantly redrawing and losing the route line
+    if (_lastRouteUpdatePosition != null) {
+      final distanceFromLastUpdate = Geolocator.distanceBetween(
+        _lastRouteUpdatePosition!.latitude,
+        _lastRouteUpdatePosition!.longitude,
+        position.latitude,
+        position.longitude,
+      );
+      
+      // Only update if moved more than 50 meters from last route update
+      if (distanceFromLastUpdate < 50) {
+        return;
+      }
+    }
+    
+    try {
+      debugPrint('[Navigation] Updating route from current location');
+      _lastRouteUpdatePosition = position;
+      
+      // Recalculate route from current position to destination
+      await _drawRouteTo(
+        _navigationDestination!,
+        _navigationDestinationName ?? "Điểm đến",
+        true,
+      );
+    } catch (e) {
+      debugPrint('[Navigation] Error updating route: $e');
+    }
+  }
+
+  void _updateUserLocationMarker(Position position) {
+    if (_mapController == null || !_isMapReady) return;
+    
+    try {
+      // Remove old user location marker
+      if (_userLocationSymbol != null) {
+        _mapController!.removeSymbol(_userLocationSymbol!);
+      }
+      
+      // Add new user location marker
+      _mapController!.addSymbol(SymbolOptions(
+        geometry: LatLng(position.latitude, position.longitude),
+        iconImage: _carIconLoaded ? 'car' : 'marker-15',
+        iconSize: _carIconLoaded ? 0.8 : 1.0,
+      )).then((symbol) {
+        _userLocationSymbol = symbol;
+      });
+    } catch (e) {
+      debugPrint('[Navigation] Error updating user location marker: $e');
+    }
+  }
+
+  void _initializeRealTimeRouteDrawing() async {
+    if (_routeProgressTimer != null) {
+      debugPrint('[Navigation] Progressive route drawing already initialized');
+      return;
+    }
+    
+    debugPrint('[Navigation] Initializing progressive route drawing');
+    _traveledPath.clear();
+    _currentRoutePointIndex = 0;
+    
+    // Remove any existing route lines
+    if (_routeLine != null && _mapController != null) {
+      try { 
+        await _mapController!.removeLine(_routeLine!); 
+        _routeLine = null;
+      } catch (_) {}
+    }
+    if (_traveledRouteLine != null && _mapController != null) {
+      try { 
+        await _mapController!.removeLine(_traveledRouteLine!); 
+        _traveledRouteLine = null;
+      } catch (_) {}
+    }
+    
+    // Start progressive route drawing timer (every second)
+    _startProgressiveRouteDrawing();
+    
+    debugPrint('[Navigation] Progressive route drawing initialized with ${_fullRoutePoints.length} route points');
+  }
+
+  void _updateRealTimeRoute(Position position) {
+    if (!_drawRouteRealTime || _mapController == null || _fullRoutePoints.isEmpty) {
+      return;
+    }
+    
+    final currentLatLng = LatLng(position.latitude, position.longitude);
+    
+    // Find the closest point on the route to current position
+    _updateRouteProgress(currentLatLng);
+  }
+
+  bool _shouldAddPointToPath(LatLng newPoint) {
+    if (_traveledPath.isEmpty) {
+      debugPrint('[Navigation] Should add point: traveled path is empty');
+      return true;
+    }
+    
+    final lastPoint = _traveledPath.last;
+    final distance = Geolocator.distanceBetween(
+      lastPoint.latitude,
+      lastPoint.longitude,
+      newPoint.latitude,
+      newPoint.longitude,
+    );
+    
+    debugPrint('[Navigation] Distance from last point: ${distance.toStringAsFixed(2)}m');
+    
+    // Add point if moved more than 5 meters from last point (reduced from 10m for testing)
+    final shouldAdd = distance > 5.0;
+    debugPrint('[Navigation] Should add point: $shouldAdd');
+    return shouldAdd;
+  }
+
+  void _updateTraveledPath(LatLng currentPosition) {
+    // Add current position to traveled path if it's significantly different from last point
+    if (_traveledPath.isEmpty || _shouldAddPointToPath(currentPosition)) {
+      _traveledPath.add(currentPosition);
+      debugPrint('[Navigation] Added point to traveled path: ${_traveledPath.length} points');
+      
+      // Draw the updated traveled path
+      _drawTraveledRoute();
+    }
+  }
+
+
+  void _drawTraveledRoute() async {
+    if (_mapController == null || _traveledPath.length < 2) return;
+    
+    try {
+      // Remove previous traveled route line
+      if (_traveledRouteLine != null) {
+        await _mapController!.removeLine(_traveledRouteLine!);
+        _traveledRouteLine = null;
+      }
+      
+      // Draw the traveled path with a different color (blue for where you've been)
+      _traveledRouteLine = await _mapController!.addLine(LineOptions(
+        geometry: _traveledPath,
+        lineColor: '#2196F3', // Blue for traveled path (where you've been)
+        lineWidth: 6.0, // Thicker line for traveled path
+      ));
+      
+      debugPrint('[Navigation] Drew traveled route with ${_traveledPath.length} points');
+    } catch (e) {
+      debugPrint('[Navigation] Error drawing traveled route: $e');
+    }
+  }
+
+  void _drawRemainingRoute(List<LatLng> points) async {
+    if (_mapController == null || points.length < 2) return;
+    
+    try {
+      // Remove previous remaining route line
+      if (_routeLine != null) {
+        await _mapController!.removeLine(_routeLine!);
+        _routeLine = null;
+      }
+      
+      // Draw the remaining route (green for where you're going)
+      _routeLine = await _mapController!.addLine(LineOptions(
+        geometry: points,
+        lineColor: '#00E676', // Green for remaining route (where you're going)
+        lineWidth: 5.0, // Slightly thicker line
+      ));
+      
+      debugPrint('[Navigation] Drew remaining route with ${points.length} points (green)');
+    } catch (e) {
+      debugPrint('[Navigation] Error drawing remaining route: $e');
+    }
+  }
+
+  void _startProgressiveRouteDrawing() {
+    if (_fullRoutePoints.isEmpty) {
+      debugPrint('[Navigation] Cannot start progressive route drawing - no route points available');
+      return;
+    }
+    
+    debugPrint('[Navigation] Starting real-time route drawing with ${_fullRoutePoints.length} points');
+    
+    // Initially show the full planned route in green
+    _drawRemainingRoute(_fullRoutePoints);
+    debugPrint('[Navigation] Drew full planned route in green');
+    
+    debugPrint('[Navigation] Real-time route drawing initialized - waiting for navigation instructions to start API updates');
+  }
+
+  void _startRealTimeRouteUpdates() {
+    // Only start API updates when step-by-step navigation begins
+    _routeProgressTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (!_isNavigating || !_drawRouteRealTime || _navigationDestination == null) {
+        debugPrint('[Navigation] Stopping route update timer - navigation ended');
+        timer.cancel();
+        return;
+      }
+      
+      debugPrint('[Navigation] Updating route from current position via Goong API');
+      _updateRouteFromCurrentPosition();
+    });
+    
+    debugPrint('[Navigation] Started real-time route updates - will call Goong API every 3 seconds');
+  }
+
+  void _updateRouteFromCurrentPosition() async {
+    if (_currentPosition == null || _navigationDestination == null) return;
+    
+    final currentLatLng = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    
+    try {
+      debugPrint('[Navigation] Fetching updated route from ${currentLatLng.latitude}, ${currentLatLng.longitude} to ${_navigationDestination!.latitude}, ${_navigationDestination!.longitude}');
+      
+      // Get route distance and duration from Goong API
+      await _checkRouteDistanceFromGoongAPI(currentLatLng);
+      
+      // Get new route from current position to destination
+      final newRoutePoints = await _directionsService.getDrivingRoute(
+        origin: currentLatLng,
+        destination: _navigationDestination!,
+      );
+      
+      if (newRoutePoints.isNotEmpty) {
+        // Update the green line with new route
+        _drawRemainingRoute(newRoutePoints);
+        debugPrint('[Navigation] Updated route with ${newRoutePoints.length} points from current position');
+      } else {
+        debugPrint('[Navigation] Failed to get updated route - keeping existing route');
+      }
+    } catch (e) {
+      debugPrint('[Navigation] Error updating route from current position: $e');
+    }
+  }
+
+  Future<void> _checkRouteDistanceFromGoongAPI(LatLng currentPosition) async {
+    if (_navigationDestination == null || _hasTriggeredArrival) return;
+    
+    try {
+      final origins = '${currentPosition.latitude},${currentPosition.longitude}';
+      final destinations = '${_navigationDestination!.latitude},${_navigationDestination!.longitude}';
+      
+      final response = await http.get(
+        Uri.parse('https://rsapi.goong.io/DistanceMatrix?origins=$origins&destinations=$destinations&vehicle=car&api_key=${ApiConfig.goongPlacesApiKey}'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      debugPrint('[Navigation] Goong Distance API response: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        debugPrint('[Navigation] Goong Distance API data: $data');
+        
+        if (data['rows'] != null && data['rows'].isNotEmpty) {
+          final elements = data['rows'][0]['elements'];
+          if (elements != null && elements.isNotEmpty) {
+            final element = elements[0];
+            
+            if (element['status'] == 'OK') {
+              final distanceValue = element['distance']['value']; // Distance in meters
+              final durationValue = element['duration']['value']; // Duration in seconds
+              final distanceText = element['distance']['text'];
+              final durationText = element['duration']['text'];
+              
+              debugPrint('[Navigation] Goong API - Route distance: ${distanceValue}m ($distanceText), Duration: ${durationValue}s ($durationText)');
+              
+              // Check if within 50 meters using route distance (not straight-line distance)
+              if (distanceValue <= _arrivalThresholdMeters) {
+                debugPrint('[Navigation] *** GOONG API ARRIVAL THRESHOLD REACHED! *** Route distance: ${distanceValue}m <= ${_arrivalThresholdMeters}m');
+                _hasTriggeredArrival = true;
+                _onArrival();
+              }
+            } else {
+              debugPrint('[Navigation] Goong API element status: ${element['status']}');
+            }
+          }
+        }
+      } else {
+        debugPrint('[Navigation] Goong Distance API error: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('[Navigation] Error checking route distance from Goong API: $e');
+    }
+  }
+
+
+  void _updateRouteProgress(LatLng currentPosition) {
+    // Simply update the traveled path (blue line - where you've been)
+    // The green line (remaining route) is now updated by the Goong API timer
+    _updateTraveledPath(currentPosition);
+    
+    debugPrint('[Navigation] Updated traveled path with GPS position: ${currentPosition.latitude}, ${currentPosition.longitude}');
+  }
+
+
+  void _stopProgressiveRouteDrawing() {
+    _routeProgressTimer?.cancel();
+    _routeProgressTimer = null;
+    _currentRoutePointIndex = 0;
+    debugPrint('[Navigation] Stopped progressive route drawing');
+  }
+
+  void _removeExistingRouteForProgressiveDrawing() async {
+    debugPrint('[Navigation] Removing existing route for progressive drawing');
+    
+    // Remove existing blue route line
+    if (_routeLine != null && _mapController != null) {
+      try {
+        await _mapController!.removeLine(_routeLine!);
+        _routeLine = null;
+        debugPrint('[Navigation] Removed existing blue route line');
+      } catch (e) {
+        debugPrint('[Navigation] Error removing existing route line: $e');
+      }
+    }
+    
+    // Remove any existing traveled route line
+    if (_traveledRouteLine != null && _mapController != null) {
+      try {
+        await _mapController!.removeLine(_traveledRouteLine!);
+        _traveledRouteLine = null;
+        debugPrint('[Navigation] Removed existing traveled route line');
+      } catch (e) {
+        debugPrint('[Navigation] Error removing existing traveled route line: $e');
       }
     }
   }

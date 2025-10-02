@@ -3,6 +3,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/utils/error_handler.dart';
 import '../../../data/models/login_request_model.dart';
 import '../../widgets/common/custom_text_field.dart';
 import '../../widgets/common/custom_button.dart';
@@ -64,12 +65,8 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Đăng nhập thất bại: ${e.toString()}'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        // Use centralized error handler for login errors
+        ErrorHandler.showLoginError(context);
       }
     } finally {
       if (mounted) {

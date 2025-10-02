@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/utils/error_handler.dart';
 import '../../../core/services/other_services_service.dart';
 import '../../widgets/common/custom_button.dart';
 
@@ -391,7 +392,8 @@ class _OtherServiceOrderScreenState extends State<OtherServiceOrderScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi đặt dịch vụ: $e')));
+      // Use centralized error handler for service booking errors
+      ErrorHandler.showSlotAlreadyBookedError(context);
     } finally {
       if (mounted) setState(() { _creating = false; });
     }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/utils/error_handler.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_review_model.dart';
 import '../../../core/services/parking_review_service.dart';
@@ -139,16 +140,12 @@ class _RatingCommentsScreenState extends State<RatingCommentsScreen>
       print('=== ERROR SUBMITTING REVIEW ===');
       print('Error: $e');
 
-      // If backend rejects due to no booking, show booking-required popup
+      // If backend rejects due to no booking, show booking-required error
       if (e is DioException && (e.response?.statusCode == 403 || e.response?.statusCode == 401)) {
-        _showBookingRequiredDialog();
+        ErrorHandler.showRatingRequiresBookingError(context);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi khi gửi đánh giá: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        // Handle other API errors with centralized handler
+        ErrorHandler.handleApiError(context, e, fallbackMessage: 'Lỗi khi gửi đánh giá');
       }
     } finally {
       if (mounted) setState(() { _isSubmittingReview = false; });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/utils/error_handler.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../data/models/parking_slot_model.dart';
 import '../../../data/models/parking_order_model.dart';
@@ -629,12 +630,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       print('=== ERROR CREATING ORDER ===');
       print('Error: $e');
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Lỗi khi tạo đơn đặt chỗ: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      // Use centralized error handler for booking errors
+      ErrorHandler.showSlotAlreadyBookedError(context);
     } finally {
       if (mounted) setState(() { _creating = false; });
     }

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
+import '../../../core/utils/url_utils.dart';
 import '../../../data/models/parking_lot_model.dart';
 import '../../../core/services/parking_lot_service.dart';
 import '../../../core/services/favorite_service.dart';
@@ -192,11 +193,14 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
       decoration: BoxDecoration(
         color: AppColors.lightGrey,
         image: DecorationImage(
-          image: (parkingLot.imageUrl.isNotEmpty && parkingLot.imageUrl.startsWith('http'))
-              ? NetworkImage(parkingLot.imageUrl)
-              : const AssetImage('assets/images/parking_placeholder.jpg') as ImageProvider,
+          image: _getImageProvider(parkingLot.imageUrl),
           fit: BoxFit.cover,
-          onError: (exception, stackTrace) {},
+          onError: (exception, stackTrace) {
+            print('Image loading error: $exception');
+            print('Main imageUrl: ${parkingLot.imageUrl}');
+            print('Images array: ${parkingLot.images.map((img) => img.imageUrl).toList()}');
+            print('First image from array: ${parkingLot.images.isNotEmpty ? parkingLot.images.first.imageUrl : 'No images'}');
+          },
         ),
       ),
       child: Stack(
@@ -673,5 +677,37 @@ class _ParkingDetailScreenState extends State<ParkingDetailScreen> {
       '/select-slot',
       arguments: parkingLot,
     );
+  }
+
+  /// Get the appropriate image provider for the parking lot image
+  ImageProvider _getImageProvider(String imageUrl) {
+    // First try to get image from the images array (preferred)
+    if (widget.parkingLot.images.isNotEmpty) {
+      final firstImage = widget.parkingLot.images.first;
+      final imageUrlFromArray = firstImage.imageUrl;
+      
+      if (imageUrlFromArray.isNotEmpty && 
+          imageUrlFromArray.startsWith('http') && 
+          !imageUrlFromArray.contains('file:/') &&
+          !imageUrlFromArray.contains('null')) {
+        print('Using image from images array: $imageUrlFromArray');
+        return NetworkImage(imageUrlFromArray);
+      }
+    }
+    
+    // Fallback to main imageUrl field
+    final cleanedUrl = UrlUtils.cleanImageUrl(imageUrl);
+    
+    if (cleanedUrl != null && 
+        cleanedUrl.startsWith('http') && 
+        !cleanedUrl.contains('file:/') &&
+        !cleanedUrl.contains('null')) {
+      print('Using cleaned main imageUrl: $cleanedUrl');
+      return NetworkImage(cleanedUrl);
+    }
+    
+    // Final fallback to asset image
+    print('Using fallback asset image');
+    return const AssetImage('assets/images/car.png');
   }
 }

@@ -750,82 +750,117 @@ class _AiFastBookingScreenState extends State<AiFastBookingScreen> {
       
       final firstVehicle = vehicles.list.first;
 
-      // 3. Find next available day (check for existing bookings and operating hours)
+      // 3. Find next available day (check operating hours only)
       // Use device's exact local time (no timezone conversion)
       final now = DateTime.now(); // This gets device local time
       debugPrint('Device time: ${now.hour}:${now.minute.toString().padLeft(2, '0')} - ${now.day}/${now.month}/${now.year}');
       DateTime bookingDate = now.add(const Duration(days: 1)); // Start with tomorrow
       
-      // Keep checking days until we find one without existing bookings and within operating hours
-      bool foundAvailableDay = false;
-      int maxDaysToCheck = 30; // Prevent infinite loop
-      int daysChecked = 0;
+      // Ensure booking time is within operating hours (07:00 - 22:00)
+      final bookingTime = bookingDate.hour;
+      if (bookingTime < 7 || bookingTime >= 22) {
+        // Move to 7:00 AM of the next day
+        bookingDate = DateTime(bookingDate.year, bookingDate.month, bookingDate.day, 7, 0);
+      }
       
-      while (!foundAvailableDay && daysChecked < maxDaysToCheck) {
-        // Check if the booking time is within operating hours (07:00 - 22:00)
-        final bookingTime = bookingDate.hour;
-        final isWithinOperatingHours = bookingTime >= 7 && bookingTime < 22;
-        
-        if (!isWithinOperatingHours) {
-          // If outside operating hours, move to next day at 7:00 AM
-          bookingDate = DateTime(bookingDate.year, bookingDate.month, bookingDate.day + 1, 7, 0);
-          daysChecked++;
-          continue;
-        }
-        
-        // Check if there are any existing bookings for this date
-        final existingOrders = await _orderService.getOrderHistory(
-          pageSize: 100, // Get all orders to check dates
-        );
-        
-        // Check if any existing order conflicts with this date
-        final hasConflict = existingOrders.orders.any((order) {
-          final orderStart = DateTime.parse(order.startTime);
-          final orderEnd = DateTime.parse(order.endTime);
-          final bookingStart = bookingDate;
-          final bookingEnd = bookingDate.add(const Duration(hours: 1));
+      // 4. Create the booking with automatic retry
+      ParkingOrder? order;
+      int retryCount = 0;
+      const maxRetries = 7; // Try up to 7 days ahead
+      
+      String startTime = bookingDate.toIso8601String();
+      String endTime = bookingDate.add(const Duration(hours: 1)).toIso8601String();
+      
+      while (order == null && retryCount < maxRetries) {
+        try {
+          final orderRequest = CreateOrderRequest(
+            vehicleId: firstVehicle.id,
+            lotId: lot.id,
+            slotId: int.parse(firstSlot.id),
+            startTime: startTime,
+            endTime: endTime,
+          );
+
+          order = await _orderService.createOrder(orderRequest);
+          debugPrint('Booking successful on attempt ${retryCount + 1}');
           
-          // Check for time overlap
-          return (bookingStart.isBefore(orderEnd) && bookingEnd.isAfter(orderStart));
-        });
-        
-        if (!hasConflict) {
-          foundAvailableDay = true;
-        } else {
-          // Move to next day
-          bookingDate = bookingDate.add(const Duration(days: 1));
-          daysChecked++;
+        } catch (e) {
+          final errorMessage = e.toString().toLowerCase();
+          debugPrint('Booking error: $errorMessage');
+          
+          // Check if it's a booking conflict error
+          if (errorMessage.contains('already booked') || 
+              errorMessage.contains('đã được đặt') ||
+              errorMessage.contains('conflict') ||
+              errorMessage.contains('occupied') ||
+              errorMessage.contains('the slot is already booked for the selected time')) {
+            
+            retryCount++;
+            debugPrint('Booking conflict detected, retrying with day+$retryCount');
+            
+            // Move to next day
+            bookingDate = bookingDate.add(const Duration(days: 1));
+            
+            // Check if new date is within operating hours
+            final newBookingTime = bookingDate.hour;
+            if (newBookingTime < 7 || newBookingTime >= 22) {
+              // Move to 7:00 AM of the next day
+              bookingDate = DateTime(bookingDate.year, bookingDate.month, bookingDate.day, 7, 0);
+            }
+            
+            // Update times for retry
+            startTime = bookingDate.toIso8601String();
+            endTime = bookingDate.add(const Duration(hours: 1)).toIso8601String();
+            
+            // Show retry notification
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Ngày ${retryCount == 1 ? 'hôm nay' : 'ngày ${retryCount}'} đã được đặt, thử ngày ${retryCount + 1}...'),
+                duration: const Duration(seconds: 2),
+                backgroundColor: AppColors.warning,
+              ),
+            );
+            
+            // Wait a bit before retry
+            await Future.delayed(const Duration(milliseconds: 500));
+            
+          } else {
+            // If it's not a booking conflict, also retry with next day
+            retryCount++;
+            debugPrint('Non-conflict error detected, retrying with day+$retryCount: $errorMessage');
+            
+            // Move to next day
+            bookingDate = bookingDate.add(const Duration(days: 1));
+            
+            // Check if new date is within operating hours
+            final newBookingTime = bookingDate.hour;
+            if (newBookingTime < 7 || newBookingTime >= 22) {
+              // Move to 7:00 AM of the next day
+              bookingDate = DateTime(bookingDate.year, bookingDate.month, bookingDate.day, 7, 0);
+            }
+            
+            // Update times for retry
+            startTime = bookingDate.toIso8601String();
+            endTime = bookingDate.add(const Duration(hours: 1)).toIso8601String();
+            
+            // Show retry notification
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Lỗi ngày ${retryCount == 1 ? 'hôm nay' : 'ngày ${retryCount}'}, thử ngày ${retryCount + 1}...'),
+                duration: const Duration(seconds: 2),
+                backgroundColor: AppColors.warning,
+              ),
+            );
+            
+            // Wait a bit before retry
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
         }
       }
       
-      if (!foundAvailableDay) {
-        // Check if it's because of operating hours using exact device time
-        final currentDeviceTime = DateTime.now(); // Device local time
-        final currentHour = currentDeviceTime.hour;
-        final currentMinute = currentDeviceTime.minute;
-        final isCurrentlyOpen = currentHour >= 7 && currentHour < 22;
-        
-        if (!isCurrentlyOpen) {
-          final currentTimeStr = '${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')}';
-          throw Exception('Bãi đỗ xe đã đóng cửa (07:00 - 22:00). Thời gian hiện tại: $currentTimeStr. Vui lòng đặt chỗ vào giờ hoạt động.');
-        } else {
-          throw Exception('Không tìm thấy ngày trống trong 30 ngày tới. Vui lòng chọn ngày thủ công.');
-        }
+      if (order == null) {
+        throw Exception('Không thể đặt chỗ sau $maxRetries ngày. Vui lòng chọn ngày thủ công.');
       }
-      
-      final startTime = bookingDate.toIso8601String();
-      final endTime = bookingDate.add(const Duration(hours: 1)).toIso8601String();
-
-      // 4. Create the booking
-      final orderRequest = CreateOrderRequest(
-        vehicleId: firstVehicle.id,
-        lotId: lot.id,
-        slotId: int.parse(firstSlot.id),
-        startTime: startTime,
-        endTime: endTime,
-      );
-
-      final order = await _orderService.createOrder(orderRequest);
 
       // 5. Show success and navigate to home
       final selectedDate = bookingDate; // Already device local time
@@ -844,7 +879,7 @@ class _AiFastBookingScreenState extends State<AiFastBookingScreen> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Đặt chỗ thành công! Mã đơn: ${order.id}\nNgày: $dateStr lúc $timeStr\nTrạng thái: $statusText (Thời gian hiện tại: $currentTimeStr)'),
+          content: Text('Đặt chỗ thành công! Mã đơn: ${order.id}\nNgày: $dateStr lúc $timeStr\nTrạng thái: $statusText (Thời gian hiện tại: $currentTimeStr)${retryCount > 0 ? '\nĐã thử ${retryCount + 1} ngày' : ''}'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 5),
         ),

@@ -35,6 +35,10 @@ class PaymentService {
     required String orderType,
     required int orderId,
   }) async {
+    print('=== CREATING PAYMENT LINK ===');
+    print('Order Type: $orderType');
+    print('Order ID: $orderId');
+    
     final Response response = await _api.post(
       ApiEndpoints.createPaymentLink,
       data: {
@@ -43,15 +47,22 @@ class PaymentService {
       },
     );
 
+    print('Payment link response status: ${response.statusCode}');
+    print('Payment link response data: ${response.data}');
+
     if (response.statusCode == 200 || response.statusCode == 201) {
       // Some backends wrap under data
       final data = response.data;
       if (data is Map<String, dynamic>) {
         if (data['data'] is Map<String, dynamic>) {
-          return PaymentLinkResponse.fromJson(data['data'] as Map<String, dynamic>);
+          final paymentData = data['data'] as Map<String, dynamic>;
+          print('Payment data: $paymentData');
+          return PaymentLinkResponse.fromJson(paymentData);
         }
+        print('Direct payment data: $data');
         return PaymentLinkResponse.fromJson(data);
       }
+      print('Raw response data: ${response.data}');
       return PaymentLinkResponse.fromJson(response.data as Map<String, dynamic>);
     }
 

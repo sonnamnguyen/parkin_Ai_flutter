@@ -20,6 +20,13 @@ class ApiConfig {
         ?? const String.fromEnvironment('PLACE_API_KEY');
     return key ?? '';
   }
+
+  // Gemini AI API Configuration
+  static String get geminiApiKey {
+    final key = (dotenv.isInitialized ? dotenv.env['GEMINI_API_KEY'] : null)
+        ?? const String.fromEnvironment('GEMINI_API_KEY');
+    return key ?? '';
+  }
   
   // API Endpoints
   static const String goongMapsBaseUrl = 'https://rsapi.goong.io';
@@ -34,4 +41,5 @@ class ApiConfig {
   static bool get isMapsApiKeyLoaded => goongMapsApiKey.isNotEmpty;
   static bool get isPlacesApiKeyLoaded => goongPlacesApiKey.isNotEmpty;
   static bool get isMapboxAccessTokenLoaded => mapboxAccessToken.isNotEmpty;
+  static bool get isGeminiApiKeyLoaded => geminiApiKey.isNotEmpty;
 }

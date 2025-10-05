@@ -22,6 +22,7 @@ import '../presentation/screens/parking/order_history_screen.dart';
 import '../presentation/screens/parking/order_view_screen.dart';
 import '../presentation/screens/parking/other_service_order_screen.dart';
 import '../presentation/screens/favorites/favorites_screen.dart';
+import '../presentation/screens/ai/ai_fast_booking_screen.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -81,6 +82,19 @@ class RouteGenerator {
       case AppRoutes.search:
         return MaterialPageRoute(
           builder: (_) => const SearchScreen(),
+        );
+
+      case AppRoutes.aiFastBooking:
+        if (args is Map<String, double>) {
+          return MaterialPageRoute(
+            builder: (_) => AiFastBookingScreen(
+              userLatitude: args['latitude'],
+              userLongitude: args['longitude'],
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const AiFastBookingScreen(),
         );
 
       case AppRoutes.notifications:

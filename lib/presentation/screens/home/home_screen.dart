@@ -34,7 +34,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final ParkingLotService _parkingLotService = ParkingLotService();
   final DirectionsService _directionsService = const DirectionsService();
-  bool _isAnalyzing = false;
   MapboxMapController? _mapController;
   Position? _currentPosition;
   bool _isLocationPermissionGranted = false;
@@ -53,6 +52,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const bool _enableGoongOverlay = false;
   bool _customIconsLoaded = false; // pins loaded
   bool _carIconLoaded = false;
+  
+  // Custom marker images
+  final Map<String, String> _customMarkerImages = {
+    'parking': 'assets/images/parking_marker.png',
+    'car': 'assets/images/car_marker.png',
+    'destination': 'assets/images/destination_marker.png',
+    'start': 'assets/images/start_marker.png',
+  };
   // Search state
   Symbol? _searchedLocationSymbol;
   LatLng? _searchedLocation;
@@ -1189,6 +1196,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadCustomMarkerImages() async {
+    if (_mapController == null) return;
+    
+    for (final entry in _customMarkerImages.entries) {
+      try {
+        final imageData = await rootBundle.load(entry.value);
+        await _mapController!.addImage(entry.key, imageData.buffer.asUint8List(), false);
+        debugPrint('Loaded custom marker: ${entry.key}');
+      } catch (e) {
+        debugPrint('Failed to load custom marker ${entry.key}: $e');
+      }
+    }
+  }
+
   Future<void> _clearParkingMarkers() async {
     if (_mapController == null) return;
     
@@ -1261,7 +1282,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           debugPrint('Added fallback marker for ${parking.name}');
         } catch (fallbackError) {
           debugPrint('Fallback marker also failed for ${parking.name}: $fallbackError');
-          // No circle fallback; skip if symbol fails
         }
       }
     }
@@ -1561,6 +1581,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _carIconLoaded = false;
                           debugPrint('Car icon failed to load: $e');
                         }
+                        
+                        // Load custom marker images
+                        await _loadCustomMarkerImages();
                         // Add custom tile source if needed
                         if (_enableGoongOverlay && !_goongTilesAdded && _mapController != null) {
                           final tilesUrl = 'https://tile.goong.io/maps/{z}/{x}/{y}.png?api_key=${ApiConfig.goongMapsApiKey}';
@@ -1670,17 +1693,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                // Thunder Icon (hidden during navigation and preview)
-                if (!_isNavigating && !_isPreviewMode)
-                Positioned(
-                  bottom: 80,
-                  left: 16,
-                    child: _buildThunderButton(),
-                  ),
 
                 // Directions button for searched place (hidden in navigation mode)
                 if (_searchedLocation != null && _searchController.text.trim().isNotEmpty && !_isInNavigationMode)
-                  Positioned(
+                Positioned(
                     bottom: 146,
                   right: 16,
                     child: FloatingActionButton(
@@ -1702,14 +1718,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: _buildSearchBar(),
                 ),
 
-                // AI Analysis Button (animated)
-                if (_isAnalyzing)
-                  Positioned(
-                    bottom: 160,
-                    left: 0,
-                    right: 0,
-                    child: _buildAIAnalysisButton(),
-                  ),
 
                 // Loading overlay for parking lots
                 if (!_isLoadingLocation && _isLoadingParkingLots)
@@ -2318,7 +2326,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: CircleAvatar(
                 radius: 20,
                 backgroundColor: AppColors.white.withOpacity(0.2),
-                backgroundImage: (user?.avatarUrl != null && (user!.avatarUrl!.trim().isNotEmpty) && (user.avatarUrl!.startsWith('http')))
+                backgroundImage: (user?.avatarUrl != null && 
+                                 user!.avatarUrl!.trim().isNotEmpty && 
+                                 user.avatarUrl!.startsWith('http') &&
+                                 !user.avatarUrl!.contains('file:/') &&
+                                 !user.avatarUrl!.contains('null'))
                     ? NetworkImage(user.avatarUrl!)
                     : null,
                 child: (user?.avatarUrl == null || user!.avatarUrl!.trim().isEmpty)
@@ -2480,6 +2492,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               color: AppColors.textSecondary,
             ),
           ),
+          IconButton(
+            onPressed: () async {
+              // Navigate to AI Fast Booking
+              await Navigator.of(context).pushNamed('/ai-fast-booking', arguments: {
+                'latitude': _currentPosition?.latitude,
+                'longitude': _currentPosition?.longitude,
+              });
+            },
+            icon: const Icon(
+              Icons.psychology,
+              color: AppColors.primary,
+            ),
+          ),
         ],
       ),
     );
@@ -2607,282 +2632,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildThunderButton() {
-    return GestureDetector(
-          onTap: () {
-            _triggerAIAnalysis();
-          },
-      child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-          color: AppColors.primary,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-              color: AppColors.primary.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-        child: const Icon(
-          Icons.flash_on, // Thunder/lightning icon
-              color: AppColors.white,
-              size: 24,
-            ),
-      ),
-    );
-  }
 
-  Widget _buildAIAnalysisButton() {
-    return Center(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 500),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppColors.gradientStart, AppColors.gradientEnd],
-          ),
-          borderRadius: BorderRadius.circular(25),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withOpacity(0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.auto_awesome,
-              color: AppColors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Đang phân tích vị trí của bạn...',
-              style: AppThemes.bodyMedium.copyWith(
-                color: AppColors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  void _triggerAIAnalysis() {
-    setState(() {
-      _isAnalyzing = true;
-    });
 
-    // Simulate AI analysis
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          _isAnalyzing = false;
-        });
-        _showAIResult();
-      }
-    });
-  }
 
-  void _showAIResult() {
-    if (!mounted) return;
-    
-    final bestParking = _findBestParkingLot();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.gradientStart, AppColors.gradientEnd],
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.auto_awesome,
-                color: AppColors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'Kết quả phân tích AI',
-              style: AppThemes.headingSmall,
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Đây là bãi đậu xe tốt nhất gần vị trí của bạn!',
-              style: AppThemes.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            if (bestParking != null) ...[
-              Text(
-                'Đề xuất:',
-                style:
-                    AppThemes.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.lightGrey,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      bestParking.name,
-                      style: AppThemes.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.local_parking,
-                          color: AppColors.success,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${bestParking.availableSlots} chỗ trống',
-                          style: AppThemes.bodySmall.copyWith(
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.monetization_on,
-                          color: AppColors.textSecondary,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          bestParking.priceText,
-                          style: AppThemes.bodySmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          color: AppColors.textSecondary,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${bestParking.distance}m',
-                          style: AppThemes.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'Đóng',
-              style: AppThemes.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              if (bestParking != null) {
-                _selectParking(bestParking);
-                Navigator.of(context).pushNamed(
-                  AppRoutes.parkingDetail,
-                  arguments: bestParking,
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              'Xem chi tiết',
-              style: TextStyle(color: AppColors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  ParkingLot? _findBestParkingLot() {
-    if (_nearbyParking.isEmpty) return null;
-    
-    // Find best parking based on availability, price, and distance
-    final availableParking = _nearbyParking.where((p) => p.hasAvailableSlots).toList();
-    
-    if (availableParking.isEmpty) return _nearbyParking.first;
-    
-    // Sort by a combination of factors (you can adjust the scoring algorithm)
-    availableParking.sort((a, b) {
-      final scoreA = _calculateParkingScore(a);
-      final scoreB = _calculateParkingScore(b);
-      return scoreB.compareTo(scoreA); // Higher score is better
-    });
-    
-    return availableParking.first;
-  }
-
-  double _calculateParkingScore(ParkingLot parking) {
-    // Simple scoring algorithm - can be made more sophisticated
-    double score = 0;
-    
-    // Available slots factor (more slots = better)
-    score += (parking.availableSlots / parking.totalSlots) * 40;
-    
-    // Distance factor (closer = better, max distance considered is 5000m)
-    final maxDistance = 5000;
-    score += ((maxDistance - parking.distance.clamp(0, maxDistance)) / maxDistance) * 30;
-    
-    // Price factor (lower price = better, max price considered is 50000)
-    final maxPrice = 50000;
-    score += ((maxPrice - parking.pricePerHour.clamp(0, maxPrice)) / maxPrice) * 20;
-    
-    // Rating factor
-    score += (parking.rating / 5.0) * 10;
-    
-    return score;
-  }
 
   Future<void> _checkUnreadNotifications() async {
     try {
@@ -2963,10 +2717,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         CameraUpdate.newLatLngZoom(
           LatLng(position.latitude, position.longitude),
           18,
-        ),
-      );
-    }
-    
+      ),
+    );
+  }
+
     // Note: Arrival detection now handled by Goong API route distance
     // _checkArrival(position); // Disabled - using Goong API route distance instead
     
@@ -3060,10 +2814,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
-              ),
-            ),
-          ],
-        ),
+                          ),
+                        ),
+                      ],
+                    ),
         content: Text(
           'Bạn đã đến ${_navigationDestinationName ?? "điểm đến"}. Chúc bạn có một ngày tốt lành!',
           style: AppThemes.bodyMedium,

@@ -31,6 +31,9 @@ class AppRoutes {
   static const String searchResults = '/search-results';
   static const String categories = '/categories';
 
+  // AI routes
+  static const String aiFastBooking = '/ai-fast-booking';
+
   // Wallet routes
   static const String wallet = '/wallet';
   static const String topUp = '/top-up';

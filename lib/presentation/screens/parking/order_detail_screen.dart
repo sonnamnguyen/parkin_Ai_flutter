@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../../core/services/vehicle_service.dart';
 import '../../../data/models/vehicle_model.dart';
+import 'payment_screen.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final ParkingLot parkingLot;
@@ -619,12 +620,26 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
       // Navigate to dedicated payment screen with QR and auto-open
       if (!mounted) return;
-      Navigator.of(context).pushNamed(AppRoutes.payment, arguments: {
-        'orderId': order.id,
-        'checkoutUrl': payment.checkoutUrl,
-        'qrCode': payment.qrCode,
-        'amount': payment.amount,
-      });
+      
+      print('=== NAVIGATING TO PAYMENT SCREEN ===');
+      print('Order ID: ${order.id}');
+      print('Checkout URL: ${payment.checkoutUrl}');
+      print('QR Code: ${payment.qrCode}');
+      print('Amount: ${payment.amount}');
+      
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => PaymentScreen(),
+          settings: RouteSettings(
+            arguments: {
+              'orderId': order.id,
+              'checkoutUrl': payment.checkoutUrl,
+              'qrCode': payment.qrCode,
+              'amount': payment.amount,
+            },
+          ),
+        ),
+      );
       
     } catch (e) {
       print('=== ERROR CREATING ORDER ===');
@@ -666,11 +681,59 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           // QR code for scanning
-          QrImageView(
-            data: widget.qrData,
-            version: QrVersions.auto,
-            size: 200,
-          ),
+          if (widget.qrData.startsWith('http'))
+            Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300, width: 1),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  widget.qrData,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      width: 200,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 200,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.qr_code,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            )
+          else
+            QrImageView(
+              data: widget.qrData,
+              version: QrVersions.auto,
+              size: 200,
+            ),
           const SizedBox(height: 12),
           const Text('Quét QR để thanh toán hoặc mở trang thanh toán'),
           const SizedBox(height: 8),

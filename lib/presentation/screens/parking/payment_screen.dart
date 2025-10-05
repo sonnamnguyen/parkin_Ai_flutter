@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_themes.dart';
 import '../../widgets/common/custom_button.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
+import '../../../routes/app_routes.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
@@ -14,30 +22,80 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   String selectedPaymentMethod = 'qr';
   bool isProcessing = false;
-  late final int? orderId;
-  late final String? checkoutUrl;
-  late final String? qrCode;
-  late final int? amount;
+  int? orderId;
+  String? checkoutUrl;
+  String? qrCode;
+  int? amount;
+
+  @override
+  void initState() {
+    super.initState();
+    // Add a small delay to ensure the route is fully set up
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        _loadArguments();
+      }
+    });
+  }
+
+  void _loadArguments() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    print('=== PAYMENT SCREEN ARGS DEBUG (initState) ===');
+    print('Args type: ${args.runtimeType}');
+    print('Args value: $args');
+    
+    if (args is Map<String, dynamic>) {
+      setState(() {
+        orderId = args['orderId'] as int?;
+        checkoutUrl = args['checkoutUrl'] as String?;
+        qrCode = args['qrCode'] as String?;
+        amount = args['amount'] as int?;
+      });
+      
+      print('Order ID: $orderId');
+      print('Checkout URL: $checkoutUrl');
+      print('QR Code: $qrCode');
+      print('Amount: $amount');
+    } else {
+      print('No arguments provided in initState');
+    }
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments;
+    print('=== PAYMENT SCREEN ARGS DEBUG ===');
+    print('Args type: ${args.runtimeType}');
+    print('Args value: $args');
+    print('ModalRoute: ${ModalRoute.of(context)}');
+    print('Settings: ${ModalRoute.of(context)?.settings}');
+    
     if (args is Map<String, dynamic>) {
       orderId = args['orderId'] as int?;
       checkoutUrl = args['checkoutUrl'] as String?;
       qrCode = args['qrCode'] as String?;
       amount = args['amount'] as int?;
+      
+      print('Order ID: $orderId');
+      print('Checkout URL: $checkoutUrl');
+      print('QR Code: $qrCode');
+      print('Amount: $amount');
     } else {
       orderId = null;
       checkoutUrl = null;
       qrCode = null;
       amount = null;
+      print('No arguments provided');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Check if we have payment data
+    final hasPaymentData = (qrCode != null && qrCode!.isNotEmpty) || 
+                          (checkoutUrl != null && checkoutUrl!.isNotEmpty);
+    
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -56,28 +114,148 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
         centerTitle: true,
       ),
-      body: Column(
+      body: hasPaymentData ? _buildSimplePaymentScreen() : _buildLoadingState(),
+      bottomNavigationBar: hasPaymentData ? _buildSimpleBottomBar() : null,
+    );
+  }
+
+  Widget _buildSimplePaymentScreen() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildPaymentSummary(),
-                  const SizedBox(height: 24),
-                  _buildQRPayment(),
-                ],
+          // Big QR Code Image - Larger size for better visibility
+          Container(
+            width: 350,
+            height: 350,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: qrCode != null && qrCode!.isNotEmpty
+                  ? Image.network(
+                      qrCode!,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: Icon(Icons.qr_code, size: 120, color: Colors.grey),
+                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      color: Colors.grey[200],
+                      child: const Center(
+                        child: Icon(Icons.qr_code, size: 120, color: Colors.grey),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          
+          // Download button
+          ElevatedButton.icon(
+            onPressed: () async {
+              if (qrCode != null && qrCode!.isNotEmpty) {
+                await _downloadQRImage();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Không có QR code để tải')),
+                );
+              }
+            },
+            icon: const Icon(Icons.download, size: 20),
+            label: const Text('Tải ảnh QR'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Open bank app button
+          if (qrCode != null && qrCode!.isNotEmpty)
+            ElevatedButton.icon(
+              onPressed: () async {
+                try {
+                  final uri = Uri.parse(qrCode!);
+                  if (await canLaunch(uri.toString())) {
+                    await launch(uri.toString());
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Không thể mở ứng dụng ngân hàng')),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Lỗi khi mở ứng dụng ngân hàng')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.account_balance, size: 20),
+              label: const Text('Mở ứng dụng ngân hàng'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            'Đang tạo liên kết thanh toán...',
+            style: AppThemes.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Vui lòng chờ trong giây lát',
+            style: AppThemes.bodySmall.copyWith(
+              color: AppColors.textSecondary,
             ),
           ),
         ],
       ),
-      bottomNavigationBar: _buildBottomActionBar(),
     );
   }
-
-  
 
   Widget _buildPaymentSummary() {
     return Container(
@@ -98,20 +276,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
         children: [
           Text('Chi tiết thanh toán', style: AppThemes.headingSmall.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Text(
-                'Tổng tiền',
-                style: AppThemes.bodyMedium,
-              ),
-              const Spacer(),
-              Text(
-                _formatAmount(amount),
-                style: AppThemes.headingSmall.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+          Text(
+            'Số tiền đã được hiển thị trong QR code',
+            style: AppThemes.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -141,23 +310,132 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          if ((qrCode ?? checkoutUrl) != null)
-            QrImageView(
-              data: (qrCode?.isNotEmpty == true ? qrCode! : (checkoutUrl ?? '')),
-              version: QrVersions.auto,
-              size: 220,
+          if (qrCode != null && qrCode!.isNotEmpty) ...[
+            Text('QR URL: $qrCode', style: TextStyle(fontSize: 10, color: Colors.red)),
+            const SizedBox(height: 8),
+            Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.red, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Image.network(
+                qrCode!,
+                width: 300,
+                height: 300,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  print('QR Code loading progress: $loadingProgress');
+                  if (loadingProgress == null) {
+                    print('QR Code loaded successfully');
+                    return child;
+                  }
+                  return Container(
+                    width: 300,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      color: Colors.yellow,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 8),
+                        Text('Loading... ${(loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! * 100).toInt()}%'),
+                      ],
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  print('QR Code loading error: $error');
+                  print('QR Code stack trace: $stackTrace');
+                  return Container(
+                    width: 300,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.error,
+                          size: 60,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Error loading QR',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        Text(
+                          'URL: ${qrCode!.length > 30 ? qrCode!.substring(0, 30) + '...' : qrCode!}',
+                          style: TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             )
+          ]
+          else if (checkoutUrl != null && checkoutUrl!.isNotEmpty) ...[
+            Text('Using checkout URL: $checkoutUrl', style: TextStyle(fontSize: 10, color: Colors.blue)),
+            const SizedBox(height: 8),
+            Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blue, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: QrImageView(
+                data: checkoutUrl!,
+                version: QrVersions.auto,
+                size: 300,
+              ),
+            )
+          ]
           else
             Container(
-              width: 200,
-              height: 200,
+              width: 220,
+              height: 220,
               decoration: BoxDecoration(
                 color: AppColors.lightGrey,
                 borderRadius: BorderRadius.circular(12),
               ),
+              child: const Center(
+                child: Icon(
+                  Icons.qr_code,
+                  size: 60,
+                  color: AppColors.textSecondary,
+                ),
+              ),
             ),
           const SizedBox(height: 16),
-          const SizedBox(height: 12),
+          if (qrCode != null && qrCode!.isNotEmpty)
+            ElevatedButton(
+              onPressed: () async {
+                print('Testing QR code URL: $qrCode');
+                try {
+                  final response = await http.get(Uri.parse(qrCode!));
+                  print('QR code URL response status: ${response.statusCode}');
+                  print('QR code URL response headers: ${response.headers}');
+                  if (response.statusCode == 200) {
+                    print('QR code URL is accessible');
+                  } else {
+                    print('QR code URL returned status: ${response.statusCode}');
+                  }
+                } catch (e) {
+                  print('Error testing QR code URL: $e');
+                }
+              },
+              child: const Text('Test QR Code URL'),
+            ),
+          const SizedBox(height: 8),
           Text(
             'Quét QR để thanh toán bằng ứng dụng ngân hàng',
             style: AppThemes.bodySmall.copyWith(
@@ -179,6 +457,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSimpleBottomBar() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: CustomButton(
+          text: 'Xong',
+          onPressed: () {
+            // Always navigate to home screen
+            Navigator.of(context).pushNamedAndRemoveUntil(
+              AppRoutes.main,
+              (route) => false,
+            );
+          },
+          isLoading: false, // Never show loading for Xong button
+          width: double.infinity,
+        ),
       ),
     );
   }
@@ -237,8 +545,96 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   String _formatAmount(int? amount) {
     if (amount == null || amount <= 0) return '--';
+    // Display amount directly without division
     final s = amount.toString();
     final re = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
     return s.replaceAllMapped(re, (m) => '${m[1]},') + ' VNĐ';
+  }
+
+  Future<void> _downloadQRImage() async {
+    try {
+      // Show loading indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Đang tải ảnh QR code...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Request storage permission
+      PermissionStatus status;
+      if (Platform.isAndroid) {
+        // For Android 13+ (API 33+), use media permissions
+        if (await Permission.photos.isGranted) {
+          status = PermissionStatus.granted;
+        } else {
+          status = await Permission.photos.request();
+        }
+        
+        // Fallback to storage permission for older Android versions
+        if (!status.isGranted) {
+          status = await Permission.storage.request();
+        }
+      } else {
+        // For iOS, use photos permission
+        status = await Permission.photos.request();
+      }
+
+      if (!status.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cần quyền truy cập bộ nhớ để tải ảnh. Vui lòng cấp quyền trong Cài đặt.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
+      // Download the image
+      final response = await http.get(Uri.parse(qrCode!));
+      if (response.statusCode == 200) {
+        // Get the downloads directory
+        final directory = await getExternalStorageDirectory();
+        if (directory != null) {
+          final downloadsDir = Directory('${directory.path}/Download');
+          if (!await downloadsDir.exists()) {
+            await downloadsDir.create(recursive: true);
+          }
+
+          // Create filename with timestamp
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final file = File('${downloadsDir.path}/qr_code_$timestamp.jpg');
+
+          // Write the image data
+          await file.writeAsBytes(response.bodyBytes);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Đã tải ảnh QR code thành công!')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Không thể truy cập thư mục tải xuống')),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Lỗi khi tải ảnh QR code')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi: $e')),
+      );
+    }
   }
 }

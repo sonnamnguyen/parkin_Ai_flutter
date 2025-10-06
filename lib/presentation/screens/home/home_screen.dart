@@ -118,6 +118,137 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Symbol? _routeStartSymbol;
   Symbol? _routeEndSymbol;
 
+  // Public navigation entrypoint to draw a route to a destination
+  void navigateToDestination(double latitude, double longitude, [String? name]) async {
+    try {
+      // Set destination and ensure origin is current location
+      _directionsDestination = LatLng(latitude, longitude);
+      _directionsDestinationName = name ?? 'Điểm đến';
+      if (_currentPosition != null) {
+        _directionsOrigin = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+        _directionsOriginName = 'Vị trí của tôi';
+      }
+      _directionsMode = true;
+      // Use the same path as the pink popup: directly draw route to destination
+      await _drawRouteTo(_directionsDestination!, _directionsDestinationName, true);
+    } catch (_) {}
+  }
+
+  // Public method: open pink popup for a lot by ID and draw route to it
+  Future<void> openParkingById(int lotId) async {
+    debugPrint('=== HOME SCREEN openParkingById CALLED ===');
+    debugPrint('Received lotId: $lotId');
+    debugPrint('lotId type: ${lotId.runtimeType}');
+    debugPrint('Method called from: ${StackTrace.current}');
+    debugPrint('Current time: ${DateTime.now()}');
+    
+    try {
+      debugPrint('=== HOME SCREEN openParkingById DEBUG START ===');
+      debugPrint('Received lotId: $lotId');
+      
+      debugPrint('Calling getParkingLotDetail with lotId: $lotId (type: ${lotId.runtimeType})');
+      
+      ParkingLot lot;
+      try {
+        debugPrint('🔄 About to call API with lotId: $lotId');
+        lot = await _parkingLotService.getParkingLotDetail(lotId).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            debugPrint('⏰ API call timed out after 10 seconds');
+            throw TimeoutException('API call timed out', const Duration(seconds: 10));
+          },
+        );
+        debugPrint('✅ getParkingLotDetail completed successfully');
+        debugPrint('Lot object: ${lot.toString()}');
+        debugPrint('Lot ID: ${lot.id}, Name: ${lot.name}');
+      } catch (apiError) {
+        debugPrint('❌ API Error in getParkingLotDetail: $apiError');
+        debugPrint('API Error type: ${apiError.runtimeType}');
+        debugPrint('API Error stack trace: ${StackTrace.current}');
+        rethrow; // Re-throw to be caught by outer catch
+      }
+      
+      debugPrint('Fetched lot: ${lot.name} at ${lot.latitude}, ${lot.longitude}');
+      
+      // Add this specific parking lot to the map even if it's outside 5km radius
+      debugPrint('🔄 Adding parking lot to map...');
+      await _addSpecificParkingLotToMap(lot);
+      debugPrint('✅ Parking lot added to map');
+      
+      // Select the parking lot (shows pink popup)
+      debugPrint('🔄 Selecting parking lot...');
+      _selectParking(lot);
+      debugPrint('✅ Parking lot selected');
+      
+      // Navigate to destination and draw route
+      debugPrint('🔄 Navigating to destination...');
+      navigateToDestination(lot.latitude, lot.longitude, lot.name);
+      debugPrint('✅ Navigation completed');
+      
+      debugPrint('=== HOME SCREEN openParkingById DEBUG END ===');
+    } catch (e) {
+      debugPrint('=== HOME SCREEN openParkingById ERROR ===');
+      debugPrint('Error: $e');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Stack trace: ${StackTrace.current}');
+    }
+  }
+
+  // Add a specific parking lot to the map (for lots outside 5km radius)
+  Future<void> _addSpecificParkingLotToMap(ParkingLot lot) async {
+    debugPrint('=== _addSpecificParkingLotToMap START ===');
+    debugPrint('Lot: ${lot.name}, lat: ${lot.latitude}, lng: ${lot.longitude}');
+    debugPrint('Map ready: $_isMapReady, Controller: ${_mapController != null}');
+    
+    if (!_isMapReady || _mapController == null) {
+      debugPrint('Map not ready or controller null, returning');
+      return;
+    }
+    
+    try {
+      debugPrint('Adding specific parking lot to map: ${lot.name} at ${lot.latitude}, ${lot.longitude}');
+      
+      // Add the parking lot marker
+      debugPrint('Creating symbol with coordinates: ${lot.latitude}, ${lot.longitude}');
+      final symbol = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: LatLng(lot.latitude, lot.longitude),
+          iconImage: _customIconsLoaded ? 'pin-green' : 'marker-15',
+          iconColor: _customIconsLoaded ? null : '#2E7D32',
+          iconSize: 1.2,
+          textField: lot.name ?? 'Bãi đỗ',
+          textSize: 12,
+          textColor: '#FFFFFF',
+          textHaloColor: '#000000',
+          textHaloWidth: 1,
+        ),
+      );
+      
+      debugPrint('Symbol created successfully: ${symbol.id}');
+      
+      // Store the symbol for later removal if needed
+      _markers.add(symbol);
+      debugPrint('Symbol added to markers list');
+      
+      // Add tap handler for this specific marker
+      _mapController!.onSymbolTapped.add((Symbol tappedSymbol) {
+        if (tappedSymbol.id == symbol.id) {
+          debugPrint('Specific parking lot tapped: ${lot.name}');
+          _selectParking(lot);
+        }
+      });
+      
+      debugPrint('Tap handler added');
+      debugPrint('=== _addSpecificParkingLotToMap SUCCESS ===');
+      
+    } catch (e) {
+      debugPrint('=== _addSpecificParkingLotToMap ERROR ===');
+      debugPrint('Error: $e');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Stack trace: ${StackTrace.current}');
+    }
+  }
+
   // Ho Chi Minh City center coordinates
   static const LatLng _hcmCenter = LatLng(10.8231, 106.6297);
   
@@ -1530,7 +1661,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       target: _currentPosition != null 
                           ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
                           : _hcmCenter,
-                      zoom: 14,
+                      zoom: 20,
                     ),
                     onMapCreated: (MapboxMapController controller) async {
                       debugPrint('Map created, initializing controller...');
@@ -1981,7 +2112,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   color: _previewStepIndex > 0 
                                     ? AppColors.white 
                                     : AppColors.white.withOpacity(0.3),
-                                  size: 20,
+                                  size: 50,
                                 ),
                               ),
                               IconButton(

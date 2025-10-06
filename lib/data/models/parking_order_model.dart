@@ -72,8 +72,10 @@ class ParkingOrder {
       status: _parseStatus(json['status']),
       createdAt: json['created_at']?.toString(),
       updatedAt: json['updated_at']?.toString(),
-      totalAmount: _parseDoubleNullable(json['total_amount']),
-      vehicleLicensePlate: json['vehicle_license_plate']?.toString(),
+      // Map both keys: some APIs use price instead of total_amount
+      totalAmount: _parseDoubleNullable(json['total_amount'] ?? json['price']),
+      // Map both keys: vehicle_plate or vehicle_license_plate
+      vehicleLicensePlate: (json['vehicle_license_plate'] ?? json['vehicle_plate'])?.toString(),
       lotName: json['lot_name']?.toString(),
       slotCode: json['slot_code']?.toString(),
     );
@@ -138,13 +140,18 @@ class OrderListResponse {
   });
 
   factory OrderListResponse.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> rawList = (json['list'] as List?) ?? const [];
+    final orders = rawList
+        .map((e) => ParkingOrder.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final total = (json['total'] as int?) ?? orders.length;
+    final page = (json['page'] as int?) ?? 1;
+    final pageSize = (json['page_size'] as int?) ?? orders.length;
     return OrderListResponse(
-      orders: (json['list'] as List)
-          .map((e) => ParkingOrder.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      total: json['total'] as int,
-      page: json['page'] as int,
-      pageSize: json['page_size'] as int,
+      orders: orders,
+      total: total,
+      page: page,
+      pageSize: pageSize,
     );
   }
 }

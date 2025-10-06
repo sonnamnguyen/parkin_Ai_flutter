@@ -558,7 +558,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           
           // Search Suggestions Overlay
-          if (_showSuggestions && _placePredictions.isNotEmpty)
+          if (_showSuggestions)
             Positioned(
               top: 100,
               left: 16,
@@ -576,14 +576,33 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ],
                 ),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _placePredictions.length,
-                  itemBuilder: (context, index) {
-                    final prediction = _placePredictions[index];
-                    return _buildSuggestionItem(prediction);
-                  },
-                ),
+                child: _isSearching
+                    ? const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                          ),
+                        ),
+                      )
+                    : _placePredictions.isNotEmpty
+                        ? ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: _placePredictions.length,
+                            itemBuilder: (context, index) {
+                              final prediction = _placePredictions[index];
+                              return _buildSuggestionItem(prediction);
+                            },
+                          )
+                        : const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(
+                              child: Text(
+                                'Không tìm thấy kết quả',
+                                style: TextStyle(color: AppColors.textSecondary),
+                              ),
+                            ),
+                          ),
               ),
             ),
         ],

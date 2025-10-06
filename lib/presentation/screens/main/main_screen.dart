@@ -6,7 +6,7 @@ import '../../../core/constants/app_themes.dart';
 import '../home/home_screen.dart';
 import '../profile/my_cars_screen.dart';
 import '../notifications/notifications_screen.dart';
-import '../wallet/wallet_screen.dart';
+import '../orders/order_history_screen.dart';
 import '../../providers/auth_provider.dart';
 import '../../../core/services/notification_service.dart';
 
@@ -15,16 +15,34 @@ class MainScreen extends StatefulWidget {
 
   @override
   State<MainScreen> createState() => _MainScreenState();
+
+  // Static variable to store pending lot ID
+  static int? _pendingLotId;
+
+  // Static method to set pending lot ID
+  static void setPendingLotId(int lotId) {
+    debugPrint('=== STATIC setPendingLotId called with lotId: $lotId ===');
+    _pendingLotId = lotId;
+  }
+
+  // Static method to get and clear pending lot ID
+  static int? getAndClearPendingLotId() {
+    final lotId = _pendingLotId;
+    _pendingLotId = null;
+    debugPrint('=== STATIC getAndClearPendingLotId returning: $lotId ===');
+    return lotId;
+  }
 }
 
 class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
+  static _MainScreenState? _instance;
+  
   int _currentIndex = 0;
   late AnimationController _animationController;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _hasUnreadNotifications = false;
-
-  // Create a static method to open drawer from anywhere
-  static _MainScreenState? _instance;
+  final GlobalKey _homeScreenKey = GlobalKey();
+  bool _handledExternalNavigate = false;
 
   @override
   void initState() {
@@ -49,6 +67,54 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _instance?._scaffoldKey.currentState?.openDrawer();
   }
 
+  // Instance method to open parking lot by ID
+  void _openParkingLotById(int lotId) {
+    debugPrint('=== INSTANCE _openParkingLotById called with lotId: $lotId ===');
+    // Switch to home tab first
+    if (_currentIndex != 0) {
+      debugPrint('Switching to home tab');
+      setState(() { _currentIndex = 0; });
+    }
+    
+    // Wait for the home screen to be ready, then call openParkingById
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Add extra delay to ensure home screen is fully loaded
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        final dynamic homeState = _homeScreenKey.currentState;
+        debugPrint('Home screen state: $homeState');
+        if (homeState != null) {
+          try {
+            homeState.openParkingById(lotId);
+            debugPrint('Successfully called homeState.openParkingById');
+          } catch (e) {
+            debugPrint('Error calling homeState.openParkingById: $e');
+          }
+        } else {
+          debugPrint('Home screen state is null - retrying...');
+          // Retry after another delay
+          Future.delayed(const Duration(milliseconds: 1000), () {
+            final dynamic homeState2 = _homeScreenKey.currentState;
+            debugPrint('Home screen state (retry): $homeState2');
+            if (homeState2 != null) {
+              try {
+                homeState2.openParkingById(lotId);
+                debugPrint('Successfully called homeState.openParkingById (retry)');
+              } catch (e) {
+                debugPrint('Error calling homeState.openParkingById (retry): $e');
+              }
+            }
+          });
+        }
+      });
+    });
+  }
+
+  // Handle pending lot ID from static method
+  void _handlePendingLotId(int lotId) {
+    debugPrint('=== HANDLING PENDING LOT ID: $lotId ===');
+    _openParkingLotById(lotId);
+  }
+
 
   void _onNavigationTapped(int index) {
     if (_currentIndex != index) {
@@ -63,6 +129,89 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // Check for pending lot ID first
+    final pendingLotId = MainScreen.getAndClearPendingLotId();
+    if (pendingLotId != null) {
+      debugPrint('=== MAIN SCREEN FOUND PENDING LOT ID: $pendingLotId ===');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _handlePendingLotId(pendingLotId);
+      });
+    }
+
+    // Handle incoming navigation arguments to draw route on HomeScreen (once)
+    final args = ModalRoute.of(context)?.settings.arguments;
+    debugPrint('=== MAIN SCREEN DEBUG ===');
+    debugPrint('Arguments received: $args');
+    debugPrint('Arguments type: ${args.runtimeType}');
+    debugPrint('Handled external navigate: $_handledExternalNavigate');
+    
+    if (!_handledExternalNavigate && args is Map && (args['navigate_to'] is Map || args['open_lot_id'] != null)) {
+      debugPrint('Processing navigation arguments...');
+      _handledExternalNavigate = true;
+      final Map? nav = args['navigate_to'] as Map?;
+      final int? openLotId = args['open_lot_id'] as int?;
+      final double? lat = (nav?['lat'] is num) ? (nav?['lat'] as num).toDouble() : null;
+      final double? lng = (nav?['lng'] is num) ? (nav?['lng'] as num).toDouble() : null;
+      final String? name = nav?['name']?.toString();
+      
+      debugPrint('openLotId: $openLotId');
+      debugPrint('lat: $lat, lng: $lng, name: $name');
+      
+      if (openLotId != null) {
+        debugPrint('Opening parking lot by ID: $openLotId');
+        if (_currentIndex != 0) {
+          debugPrint('Switching to home tab (index 0)');
+          setState(() { _currentIndex = 0; });
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final dynamic homeState = _homeScreenKey.currentState;
+          debugPrint('Home screen state: $homeState');
+          debugPrint('Home screen state type: ${homeState.runtimeType}');
+          if (homeState != null) {
+            debugPrint('Home screen state is not null, calling openParkingById...');
+            try { 
+              homeState.openParkingById(openLotId);
+              debugPrint('Called openParkingById successfully');
+            } catch (e) {
+              debugPrint('Error calling openParkingById: $e');
+              debugPrint('Error type: ${e.runtimeType}');
+            }
+          } else {
+            debugPrint('Home screen state is null - retrying in 1 second...');
+            Future.delayed(const Duration(seconds: 1), () {
+              final dynamic homeState2 = _homeScreenKey.currentState;
+              debugPrint('Home screen state (retry): $homeState2');
+              if (homeState2 != null) {
+                try {
+                  homeState2.openParkingById(openLotId);
+                  debugPrint('Called openParkingById successfully (retry)');
+                } catch (e) {
+                  debugPrint('Error calling openParkingById (retry): $e');
+                }
+              }
+            });
+          }
+        });
+      } else if (lat != null && lng != null) {
+        debugPrint('Navigating to coordinates: $lat, $lng');
+        if (_currentIndex != 0) {
+          debugPrint('Switching to home tab (index 0)');
+          setState(() { _currentIndex = 0; });
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final dynamic homeState = _homeScreenKey.currentState;
+          debugPrint('Home screen state: $homeState');
+          try {
+            homeState?.navigateToDestination(lat, lng, name);
+            debugPrint('Called navigateToDestination successfully');
+          } catch (e) {
+            debugPrint('Error calling navigateToDestination: $e');
+          }
+        });
+      }
+    }
+    debugPrint('=== MAIN SCREEN DEBUG END ===');
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: _buildDrawer(),
@@ -76,17 +225,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Widget _getScreenForIndex(int index) {
     switch (index) {
       case 0:
-        return const HomeScreen();
+        return HomeScreen(key: _homeScreenKey);
       case 1:
         return const MyCarsScreen();
       case 2:
         return const NotificationsScreen();
       case 3:
-        return const WalletScreen();
+        return const OrderHistoryScreen();
       default:
         return const HomeScreen();
     }
   }
+
+  // GlobalKey to reach HomeScreen's state to call navigateToDestination
+  // (use plain GlobalKey to avoid private state type coupling)
 
   Widget _buildDrawer() {
     return Drawer(
@@ -188,9 +340,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                             ),
                           ),
                           _buildNavigationItem(
-                            Icons.account_balance_wallet_outlined,
-                            Icons.account_balance_wallet,
-                            AppStrings.wallet,
+                            Icons.receipt_long_outlined,
+                            Icons.receipt_long,
+                            'Lịch sử giao dịch',
                             3,
                           ),
                           const SizedBox(height: 24),

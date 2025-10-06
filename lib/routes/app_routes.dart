@@ -34,10 +34,8 @@ class AppRoutes {
   // AI routes
   static const String aiFastBooking = '/ai-fast-booking';
 
-  // Wallet routes
-  static const String wallet = '/wallet';
-  static const String topUp = '/top-up';
-  static const String transactions = '/transactions';
+  // History routes
+  static const String orderHistory = '/order-history';
 
   // Services routes
   static const String services = '/services';
@@ -47,7 +45,6 @@ class AppRoutes {
   static const String ratingComments = '/rating-comments';
 
   // Order routes
-  static const String orderHistory = '/order-history';
   static const String orderView = '/order-view';
 
   // Other routes

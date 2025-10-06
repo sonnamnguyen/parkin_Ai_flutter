@@ -179,4 +179,35 @@ class ParkingOrderService {
       rethrow;
     }
   }
+
+  // Delete order (history entry)
+  Future<void> deleteOrder(int orderId) async {
+    try {
+      print('=== DELETE ORDER ===');
+      print('Order ID: $orderId');
+
+      final Response response = await _api.delete(
+        ApiEndpoints.parkingOrderDetail(orderId),
+        data: {'id': orderId},
+      );
+
+      print('Delete order response status: ${response.statusCode}');
+      print('Delete order response data: ${response.data}');
+
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        throw DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          message: 'Failed to delete order: ${response.statusCode}',
+        );
+      }
+    } on DioException catch (e) {
+      print('DioException in deleteOrder: $e');
+      print('Response data: ${e.response?.data}');
+      rethrow;
+    } catch (e) {
+      print('General error in deleteOrder: $e');
+      rethrow;
+    }
+  }
 }

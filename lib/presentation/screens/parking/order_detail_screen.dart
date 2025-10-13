@@ -636,6 +636,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               'checkoutUrl': payment.checkoutUrl,
               'qrCode': payment.qrCode,
               'amount': payment.amount,
+              // Parking lot details
+              'parkingLot': widget.parkingLot,
+              'selectedSlot': widget.selectedSlot,
+              'selectedVehicle': _selectedVehicle,
+              'startTime': startTimeStr,
+              'endTime': endTimeStr,
             },
           ),
         ),

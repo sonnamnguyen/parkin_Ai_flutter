@@ -26,6 +26,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
   String? checkoutUrl;
   String? qrCode;
   int? amount;
+  
+  // Real API data
+  dynamic parkingLot;
+  dynamic selectedSlot;
+  dynamic selectedVehicle;
+  String? startTime;
+  String? endTime;
 
   @override
   void initState() {
@@ -50,12 +57,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
         checkoutUrl = args['checkoutUrl'] as String?;
         qrCode = args['qrCode'] as String?;
         amount = args['amount'] as int?;
+        // Real API data
+        parkingLot = args['parkingLot'];
+        selectedSlot = args['selectedSlot'];
+        selectedVehicle = args['selectedVehicle'];
+        startTime = args['startTime'] as String?;
+        endTime = args['endTime'] as String?;
       });
       
       print('Order ID: $orderId');
       print('Checkout URL: $checkoutUrl');
       print('QR Code: $qrCode');
       print('Amount: $amount');
+      print('Parking Lot: $parkingLot');
+      print('Selected Slot: $selectedSlot');
+      print('Selected Vehicle: $selectedVehicle');
+      print('Start Time: $startTime');
+      print('End Time: $endTime');
     } else {
       print('No arguments provided in initState');
     }
@@ -478,10 +496,44 @@ class _PaymentScreenState extends State<PaymentScreen> {
         child: CustomButton(
           text: 'Xong',
           onPressed: () {
-            // Always navigate to home screen
+            // Navigate to ticket screen with real API data
             Navigator.of(context).pushNamedAndRemoveUntil(
-              AppRoutes.main,
+              AppRoutes.ticket,
               (route) => false,
+              arguments: {
+                'order_id': orderId,
+                'lot_id': parkingLot?.id ?? 2,
+                'lot_name': parkingLot?.name ?? 'Bãi xe Đại học Khoa học Tự nhiên',
+                'slot_code': selectedSlot?.slotNumber ?? selectedSlot?.id ?? 'A01',
+                'vehicle_plate': selectedVehicle?.licensePlate ?? 'B 1234 CD',
+                'start_time': startTime?.substring(11, 16) ?? '12:00',
+                'end_time': endTime?.substring(11, 16) ?? '14:00',
+                'date': startTime?.substring(0, 10) ?? DateTime.now().toString().substring(0, 10),
+                'total_amount': amount ?? 25000,
+                'address': parkingLot?.address ?? '227 Nguyễn Văn Cừ, Quận 5, TP.HCM',
+                'vehicle_model': selectedVehicle?.model ?? '2021 Audi Q3',
+                'reservation_time': 'Thời gian giữ chỗ',
+                'parking_spot': 'Chỗ ${selectedSlot?.slotNumber ?? selectedSlot?.id ?? 'A01'}',
+                'session_parking_details': {
+                  'lot_id': parkingLot?.id ?? 2,
+                  'lot_name': parkingLot?.name ?? 'Bãi xe Đại học Khoa học Tự nhiên',
+                  'address': parkingLot?.address ?? '227 Nguyễn Văn Cừ, Quận 5, TP.HCM',
+                  'price_per_hour': parkingLot?.pricePerHour?.toInt() ?? 25000,
+                  'operating_hours': '${parkingLot?.openTime ?? '07:00'} - ${parkingLot?.closeTime ?? '22:00'}',
+                  'total_slots': parkingLot?.totalSlots ?? 50,
+                  'available_slots': parkingLot?.availableSlots ?? 35,
+                },
+                'slot_order_details': {
+                  'slot_id': selectedSlot?.id ?? '1',
+                  'slot_code': selectedSlot?.slotNumber ?? selectedSlot?.id ?? 'A01',
+                  'slot_type': 'Standard',
+                  'vehicle_plate': selectedVehicle?.licensePlate ?? 'B 1234 CD',
+                  'vehicle_type': selectedVehicle?.type ?? 'Car',
+                  'booking_duration': _calculateDuration(),
+                  'start_time': startTime?.substring(11, 16) ?? '12:00',
+                  'end_time': endTime?.substring(11, 16) ?? '14:00',
+                },
+              },
             );
           },
           isLoading: false, // Never show loading for Xong button
@@ -549,6 +601,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final s = amount.toString();
     final re = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
     return s.replaceAllMapped(re, (m) => '${m[1]},') + ' VNĐ';
+  }
+
+  String _calculateDuration() {
+    if (startTime != null && endTime != null) {
+      try {
+        final start = DateTime.parse(startTime!);
+        final end = DateTime.parse(endTime!);
+        final duration = end.difference(start);
+        final hours = duration.inHours;
+        final minutes = duration.inMinutes % 60;
+        if (hours > 0) {
+          return '${hours}h ${minutes}m';
+        } else {
+          return '${minutes}m';
+        }
+      } catch (e) {
+        return '2 hours';
+      }
+    }
+    return '2 hours';
   }
 
   Future<void> _downloadQRImage() async {

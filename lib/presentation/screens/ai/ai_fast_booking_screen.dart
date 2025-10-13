@@ -885,10 +885,44 @@ class _AiFastBookingScreenState extends State<AiFastBookingScreen> {
         ),
       );
 
-      // Navigate back to home
+      // Navigate to ticket screen with booking details
       Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.main,
+        AppRoutes.ticket,
         (route) => false,
+        arguments: {
+          'order_id': order.id,
+          'lot_id': _selectedParkingLot?.id ?? 0,
+          'lot_name': _selectedParkingLot?.name ?? 'Bãi đỗ xe',
+          'slot_code': firstSlot.slotNumber,
+          'vehicle_plate': firstVehicle.licensePlate,
+          'start_time': startTime.substring(11, 16),
+          'end_time': endTime.substring(11, 16),
+          'date': startTime.substring(0, 10),
+          'total_amount': 25000, // Default amount
+          'address': _selectedParkingLot?.address ?? 'Địa chỉ không xác định',
+          'vehicle_model': firstVehicle.model,
+          'reservation_time': 'Thời gian giữ chỗ',
+          'parking_spot': 'Chỗ ${firstSlot.slotNumber}',
+          'session_parking_details': {
+            'lot_id': _selectedParkingLot?.id ?? 0,
+            'lot_name': _selectedParkingLot?.name ?? 'Bãi đỗ xe',
+            'address': _selectedParkingLot?.address ?? 'Địa chỉ không xác định',
+            'price_per_hour': _selectedParkingLot?.pricePerHour?.toInt() ?? 25000,
+            'operating_hours': '${_selectedParkingLot?.openTime ?? '07:00'} - ${_selectedParkingLot?.closeTime ?? '22:00'}',
+            'total_slots': _selectedParkingLot?.totalSlots ?? 50,
+            'available_slots': _selectedParkingLot?.availableSlots ?? 35,
+          },
+          'slot_order_details': {
+            'slot_id': firstSlot.id,
+            'slot_code': firstSlot.slotNumber,
+            'slot_type': firstSlot.type,
+            'vehicle_plate': firstVehicle.licensePlate,
+            'vehicle_type': firstVehicle.type,
+            'booking_duration': _calculateDuration(startTime, endTime),
+            'start_time': startTime.substring(11, 16),
+            'end_time': endTime.substring(11, 16),
+          },
+        },
       );
 
     } catch (e) {
@@ -903,6 +937,23 @@ class _AiFastBookingScreenState extends State<AiFastBookingScreen> {
           duration: const Duration(seconds: 3),
         ),
       );
+    }
+  }
+
+  String _calculateDuration(String startTime, String endTime) {
+    try {
+      final start = DateTime.parse(startTime);
+      final end = DateTime.parse(endTime);
+      final duration = end.difference(start);
+      final hours = duration.inHours;
+      final minutes = duration.inMinutes % 60;
+      if (hours > 0) {
+        return '${hours}h ${minutes}m';
+      } else {
+        return '${minutes}m';
+      }
+    } catch (e) {
+      return '2 hours';
     }
   }
 

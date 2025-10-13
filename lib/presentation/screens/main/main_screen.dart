@@ -9,6 +9,7 @@ import '../notifications/notifications_screen.dart';
 import '../orders/order_history_screen.dart';
 import '../../providers/auth_provider.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../routes/app_routes.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -681,12 +682,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              // Implement logout
-              await Provider.of<AuthProvider>(context, listen: false).logout();
+              // Local logout without API
+              await Provider.of<AuthProvider>(context, listen: false).logoutLocal();
               // Navigate to login screen
               if (mounted) {
                 Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/login',
+                  AppRoutes.login,
                   (route) => false,
                 );
               }

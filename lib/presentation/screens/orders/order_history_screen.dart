@@ -149,48 +149,102 @@ class _OrderTile extends StatelessWidget {
             const SizedBox(height: 4),
             Text('Thời gian: ${order.startTime} - ${order.endTime}'),
             const SizedBox(height: 10),
-            SizedBox(
-              height: 56,
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    debugPrint('=== CHỈ ĐƯỜNG DEBUG START ===');
-                    debugPrint('Order lotId: ${order.lotId}');
-                    debugPrint('Order lotName: ${order.lotName}');
-                    
-                    final lotService = ParkingLotService();
-                    final lot = await lotService.getParkingLotDetail(order.lotId);
-                    debugPrint('Fetched lot details: ${lot.name}');
-                    debugPrint('Lot coordinates: lat=${lot.latitude}, lng=${lot.longitude}');
-                    
-                    if (context.mounted) {
-                      debugPrint('Navigating to main with open_lot_id: ${order.lotId}');
-                      
-                      // Store the lot ID globally and navigate
-                      MainScreen.setPendingLotId(order.lotId);
-                      
-                      Navigator.of(context).pushReplacementNamed(
-                        AppRoutes.main,
-                      );
-                      
-                      debugPrint('Navigation completed');
-                    }
-                    debugPrint('=== CHỈ ĐƯỜNG DEBUG END ===');
-                  } catch (e) {
-                    debugPrint('=== CHỈ ĐƯỜNG ERROR ===');
-                    debugPrint('Error: $e');
-                    debugPrint('Error type: ${e.runtimeType}');
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Lỗi lấy vị trí bãi đỗ: $e')),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.navigation),
-                label: const Text('Chỉ đường'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          try {
+                            debugPrint('=== CHỈ ĐƯỜNG DEBUG START ===');
+                            debugPrint('Order lotId: ${order.lotId}');
+                            debugPrint('Order lotName: ${order.lotName}');
+                            
+                            final lotService = ParkingLotService();
+                            final lot = await lotService.getParkingLotDetail(order.lotId);
+                            debugPrint('Fetched lot details: ${lot.name}');
+                            debugPrint('Lot coordinates: lat=${lot.latitude}, lng=${lot.longitude}');
+                            
+                            if (context.mounted) {
+                              debugPrint('Navigating to main with open_lot_id: ${order.lotId}');
+                              
+                              // Store the lot ID globally and navigate
+                              MainScreen.setPendingLotId(order.lotId);
+                              
+                              Navigator.of(context).pushReplacementNamed(
+                                AppRoutes.main,
+                              );
+                              
+                              debugPrint('Navigation completed');
+                            }
+                            debugPrint('=== CHỈ ĐƯỜNG DEBUG END ===');
+                          } catch (e) {
+                            debugPrint('=== CHỈ ĐƯỜNG ERROR ===');
+                            debugPrint('Error: $e');
+                            debugPrint('Error type: ${e.runtimeType}');
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Lỗi lấy vị trí bãi đỗ: $e')),
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.navigation),
+                        label: const Text('Chỉ đường'),
+                      ),
+                    ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pushNamed(
+                          AppRoutes.ticket,
+                          arguments: {
+                            'order_id': order.id,
+                            'lot_id': order.lotId,
+                            'lot_name': order.lotName,
+                            'slot_code': order.slotCode,
+                            'vehicle_plate': order.vehicleLicensePlate ?? 'N/A',
+                            'start_time': order.startTime.substring(11, 16),
+                            'end_time': order.endTime.substring(11, 16),
+                            'date': order.startTime.substring(0, 10),
+                            'total_amount': order.totalAmount?.toInt() ?? 0,
+                            'address': 'Địa chỉ bãi đỗ xe',
+                            'vehicle_model': 'Xe của bạn',
+                            'reservation_time': 'Thời gian giữ chỗ',
+                            'parking_spot': 'Chỗ ${order.slotCode}',
+                            'session_parking_details': {
+                              'lot_id': order.lotId,
+                              'lot_name': order.lotName,
+                              'address': 'Địa chỉ bãi đỗ xe',
+                              'price_per_hour': 25000,
+                              'operating_hours': '07:00 - 22:00',
+                              'total_slots': 50,
+                              'available_slots': 35,
+                            },
+                            'slot_order_details': {
+                              'slot_id': order.slotId,
+                              'slot_code': order.slotCode,
+                              'slot_type': 'Standard',
+                              'vehicle_plate': order.vehicleLicensePlate ?? 'N/A',
+                              'vehicle_type': 'Car',
+                              'booking_duration': '2 hours',
+                              'start_time': order.startTime.substring(11, 16),
+                              'end_time': order.endTime.substring(11, 16),
+                            },
+                          },
+                        );
+                      },
+                      icon: const Icon(Icons.receipt),
+                      label: const Text('Xem vé'),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

@@ -162,6 +162,24 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // Logout locally without calling API
+  Future<void> logoutLocal() async {
+    try {
+      // Clear local storage immediately without network request
+      await _storageService.removeToken();
+      await _storageService.removeUserData();
+
+      // Clear in-memory auth state
+      _user = null;
+      _token = null;
+      _error = null;
+      _setStatus(AuthStatus.unauthenticated);
+    } catch (e) {
+      _error = e.toString();
+      _setStatus(AuthStatus.error);
+    }
+  }
+
   // Check authentication status on app start
   Future<void> checkAuthStatus() async {
     try {

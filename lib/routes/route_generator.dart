@@ -23,6 +23,7 @@ import '../presentation/screens/parking/order_view_screen.dart';
 import '../presentation/screens/parking/other_service_order_screen.dart';
 import '../presentation/screens/favorites/favorites_screen.dart';
 import '../presentation/screens/ai/ai_fast_booking_screen.dart';
+import '../presentation/screens/ticket/ticket_screen.dart';
 import '../main.dart';
 
 class RouteGenerator {
@@ -144,6 +145,16 @@ class RouteGenerator {
       case AppRoutes.payment:
         return MaterialPageRoute(
           builder: (_) => const PaymentScreen(),
+        );
+
+      case AppRoutes.ticket:
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => TicketScreen(arguments: args),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const TicketScreen(),
         );
 
       case AppRoutes.otherServiceOrder:
